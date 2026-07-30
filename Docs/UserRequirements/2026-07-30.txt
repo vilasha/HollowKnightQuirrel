@@ -1,0 +1,7 @@
+Based on the game Hollow Knight Silksong.
+The game is for Desktop (Windows, Linux), with WASD keys for navigation.
+Name of the character Quirrel.
+He fights with a drawing pin: the sharp point of the pin can attack, and other side (colored depending on pin properties, starting pin has green head) he can block attacks of enemies.
+On his head he wears his teacher's mask (looks like a chinese hat). When he loses 1 health the mask breaks. Each lost health damages the mask more and more. If the mask breaks completely and falls apart, he dies. Death returns the player to the last save.
+The main goal of Quirrel is to spread the infection. He heard from someone that there is an infection spreading among the insects of Hollow Nest. And he wants to stop the infection.
+The game starts with a small tutorial, where Quirrel has 4 health, and there is a small slow flying enemy in front of him. The enemy can sting, and that makes Quirrel to lose 1 health. Game teaches the player how to attack and how to block enemy's attacks. The map is closed at the beginning.
