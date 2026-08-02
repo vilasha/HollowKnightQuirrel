@@ -32,3 +32,24 @@ code or assets:
 Do not write task descriptions only to the in-session task list — that list
 is fine for tracking progress *within* a session, but the plan itself must
 exist as a committed file in `Docs/Plans/` before implementation starts.
+
+## Delegate to the human when that's cheaper
+
+Before drafting or implementing a plan, check whether the task is much less
+effort for the user to just do by hand than to have agents plan and execute
+it (e.g. recoloring one element in Photoshop/Aseprite, renaming a file,
+tweaking a single Inspector value). If so, **say so and hand it back to the
+user instead of running it through the full pipeline.**
+
+**Why:** the pipeline's rigor (multi-round architect/reviewer cycles, pixel-
+level regression proofs, dependency-graph verification) has real token cost.
+For a genuinely simple visual tweak, that cost can dwarf the 5 minutes it
+would take the user to open the file and change it themselves — burning
+their quota on process for a task with no real regression risk.
+
+**How to apply:** when scoping a task (as architect, reviewer, or the routing
+agent), if the actual work is a small, manual, low-risk edit a human can just
+do directly — say so plainly and offer that as the default, rather than
+defaulting to the full agent pipeline. Reserve the full pipeline for work
+that's genuinely risky, multi-file, or tedious enough that automation earns
+its cost.
