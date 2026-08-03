@@ -1,7 +1,7 @@
 ---
 name: implementation-plan-architect
 description: Senior Technical Director for creating detailed implementation plans for a Unity 2D game. Invoke when a feature needs planning - breakdown into 1-4 hour tasks, acceptance criteria, regression impact, coordination with the reviewer.
-model: opus
+model: sonnet
 color: magenta
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 ---

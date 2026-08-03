@@ -1,7 +1,7 @@
 ---
 name: implementation-plan-reviewer
 description: Senior Technical Lead for reviewing Unity game implementation plans. Invoke when a plan is ready and needs review for completeness, task granularity, regression impact, and technical correctness.
-model: opus
+model: sonnet
 color: red
 tools: Read, Glob, Grep
 ---
