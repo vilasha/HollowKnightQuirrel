@@ -1,5 +1,11 @@
 # CLAUDE.md — Project Workflow
 
+## Environment
+
+The user's OS is Windows. Any shell commands (in plans, docs, or run directly)
+must be PowerShell syntax, not bash/POSIX (e.g. `Get-ChildItem` not `ls -la`,
+`Remove-Item` not `rm`, `;` not `&&` for chaining unless conditional).
+
 ## Task pipeline (required for all work)
 
 Every task in this project — whether it comes from the user directly or is
