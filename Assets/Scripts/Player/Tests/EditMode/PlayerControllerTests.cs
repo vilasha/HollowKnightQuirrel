@@ -713,6 +713,148 @@ public class PlayerControllerTests
             "TryAttack must remain permanently blocked by IsDead after Die() - unrelated to this plan, " +
             "confirms the block is IsDead, not a leaked attack flag.");
     }
+
+    // -------------------------------------------------------------------
+    // Task 6.1 (Docs/Plans/007_look-up-down-idle-animation-and-pan-tuning.md): coverage for
+    // UpdateLookState's idle-AND-grounded gating and Hurt()/Die()'s LookingUp/LookingDown force-clears.
+    // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Test-only helper that force-sets the private field _horizontalInput via reflection - same
+    /// rationale/convention as <see cref="ForceSetDefendHeld"/>/<see cref="ForceSetIsGrounded"/> above.
+    /// _horizontalInput is otherwise only ever written inside the untestable Update() (from real
+    /// Input.GetKey(KeyCode.A/D) reads), so EditMode tests need a way to force it nonzero to exercise
+    /// UpdateLookState's "not walking" gate (plan section, Decision 6).
+    /// </summary>
+    private static void ForceSetHorizontalInput(PlayerController controller, float value)
+    {
+        FieldInfo field = typeof(PlayerController).GetField(
+            "_horizontalInput", BindingFlags.NonPublic | BindingFlags.Instance);
+        field.SetValue(controller, value);
+    }
+
+    [Test]
+    public void UpdateLookState_WHeldWhileIdleAndGrounded_SetsLookingUpOnly()
+    {
+        CreatePlayer();
+        Assert.IsTrue(_playerController.IsGrounded, "Rig defaults grounded true.");
+
+        _playerController.UpdateLookState(true, false);
+
+        Assert.IsTrue(_playerController.LookingUp, "Holding W while idle and grounded should set LookingUp.");
+        Assert.IsFalse(_playerController.LookingDown, "LookingDown must stay false when only W is held.");
+    }
+
+    [Test]
+    public void UpdateLookState_SHeldWhileIdleAndGrounded_SetsLookingDownOnly()
+    {
+        CreatePlayer();
+        Assert.IsTrue(_playerController.IsGrounded, "Rig defaults grounded true.");
+
+        _playerController.UpdateLookState(false, true);
+
+        Assert.IsTrue(_playerController.LookingDown, "Holding S while idle and grounded should set LookingDown.");
+        Assert.IsFalse(_playerController.LookingUp, "LookingUp must stay false when only S is held.");
+    }
+
+    /// <summary>
+    /// The accumulation-cancel behavior (plan Decision 3/6): mirrors CameraFollow's own W/S cancel and
+    /// this file's own A/D cancel - both keys held simultaneously must net to neither direction.
+    /// </summary>
+    [Test]
+    public void UpdateLookState_BothHeld_SetsNeitherTrue_MirrorsCameraCancelBehavior()
+    {
+        CreatePlayer();
+
+        _playerController.UpdateLookState(true, true);
+
+        Assert.IsFalse(_playerController.LookingUp, "Both keys held must cancel to neither direction.");
+        Assert.IsFalse(_playerController.LookingDown, "Both keys held must cancel to neither direction.");
+    }
+
+    [Test]
+    public void UpdateLookState_WhileDead_BothFalse_RegardlessOfKeysHeld()
+    {
+        CreatePlayer();
+        _playerController.IsDead = true;
+
+        _playerController.UpdateLookState(true, false);
+
+        Assert.IsFalse(_playerController.LookingUp, "Dead characters must never show a look-pose.");
+        Assert.IsFalse(_playerController.LookingDown, "Dead characters must never show a look-pose.");
+    }
+
+    /// <summary>
+    /// IsFullyCommitted is exercised here via DefendHeld (see <see cref="ForceSetDefendHeld"/>'s doc
+    /// comment for why reflection is used) - one of IsFullyCommitted's three inputs.
+    /// </summary>
+    [Test]
+    public void UpdateLookState_WhileFullyCommitted_BothFalse()
+    {
+        CreatePlayer();
+        ForceSetDefendHeld(_playerController, true);
+        Assert.IsTrue(_playerController.IsFullyCommitted);
+
+        _playerController.UpdateLookState(true, false);
+
+        Assert.IsFalse(_playerController.LookingUp, "Fully-committed characters must never show a look-pose.");
+        Assert.IsFalse(_playerController.LookingDown, "Fully-committed characters must never show a look-pose.");
+    }
+
+    [Test]
+    public void UpdateLookState_WhileNotGrounded_BothFalse()
+    {
+        CreatePlayer();
+        ForceSetIsGrounded(_playerController, false);
+
+        _playerController.UpdateLookState(true, false);
+
+        Assert.IsFalse(_playerController.LookingUp, "Airborne characters must never show a look-pose.");
+        Assert.IsFalse(_playerController.LookingDown, "Airborne characters must never show a look-pose.");
+    }
+
+    [Test]
+    public void UpdateLookState_WhileHorizontalInputNonzero_BothFalse()
+    {
+        CreatePlayer();
+        ForceSetHorizontalInput(_playerController, 1f);
+
+        _playerController.UpdateLookState(true, false);
+
+        Assert.IsFalse(_playerController.LookingUp, "Walking characters must never show a look-pose.");
+        Assert.IsFalse(_playerController.LookingDown, "Walking characters must never show a look-pose.");
+    }
+
+    /// <summary>
+    /// Mirrors the existing DefendHeld force-clear precedent in Hurt()/Die() (plan Decision 5): the
+    /// clear must be immediate, in the same call, not merely visible on a subsequent Update() tick.
+    /// </summary>
+    [Test]
+    public void Hurt_WhileLookingUp_ImmediatelyClearsLookingUp()
+    {
+        CreatePlayer();
+        _playerController.UpdateLookState(true, false);
+        Assert.IsTrue(_playerController.LookingUp, "Precondition: LookingUp should be true before Hurt().");
+
+        _playerController.Hurt();
+
+        Assert.IsFalse(_playerController.LookingUp,
+            "Hurt() must immediately force-clear LookingUp, not merely on the next Update() tick.");
+    }
+
+    /// <summary>Mirror of the test above, for Die() (plan Decision 5).</summary>
+    [Test]
+    public void Die_WhileLookingDown_ImmediatelyClearsLookingDown()
+    {
+        CreatePlayer();
+        _playerController.UpdateLookState(false, true);
+        Assert.IsTrue(_playerController.LookingDown, "Precondition: LookingDown should be true before Die().");
+
+        _playerController.Die();
+
+        Assert.IsFalse(_playerController.LookingDown,
+            "Die() must immediately force-clear LookingDown, not merely on the next Update() tick.");
+    }
 }
 
 /// <summary>

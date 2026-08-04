@@ -45,6 +45,8 @@ public class AnimatorContractTests
         ("HurtRecoveryTriggerHash", "HurtRecoveryTrigger", AnimatorControllerParameterType.Trigger),
         ("DieTriggerHash", "DieTrigger", AnimatorControllerParameterType.Trigger),
         ("IsDeadHash", "IsDead", AnimatorControllerParameterType.Bool),
+        ("LookingUpHash", "LookingUp", AnimatorControllerParameterType.Bool),
+        ("LookingDownHash", "LookingDown", AnimatorControllerParameterType.Bool),
     };
 
     private static AnimatorController LoadController()
@@ -214,5 +216,145 @@ public class AnimatorContractTests
         {
             (AnimatorConditionMode.IfNot, "IsGrounded", 0f),
         }, "Attack -> JumpFall");
+    }
+
+    // -------------------------------------------------------------------
+    // Task 6.2 (Docs/Plans/007_look-up-down-idle-animation-and-pan-tuning.md): contract tests locking
+    // in Task 3.1's Idle/LookUp/LookDown transition topology. Same failure-mode reasoning as the tests
+    // above: an Animator transition edit compiles fine and fails silently at runtime if wrong.
+    // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Locks in plan 007 Task 3.1's exact transition topology: Idle must have exactly 5 outgoing
+    /// transitions, in list order Walk/JumpAnticipation/DefendRaise/LookUp/LookDown (order is
+    /// load-bearing - Mecanim evaluates a state's outgoing transitions in list order and takes the
+    /// first whose conditions are all satisfied), with the exact conditions the plan specifies. The
+    /// existing 3 transitions (Walk/JumpAnticipation/DefendRaise) must remain byte-identical in order,
+    /// condition, and destination to their pre-plan-007 state - the 2 new ones are appended last.
+    /// </summary>
+    [Test]
+    public void IdleState_HasExactlyFiveOutgoingTransitions_InOrder_IncludingLookUpAndLookDown()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState idleState = FindStateByName(controller, "Idle");
+        Assert.IsNotNull(idleState,
+            $"Expected an 'Idle' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 007 Task 3.1 " +
+            "appends 2 new outgoing transitions to it.");
+
+        AnimatorStateTransition[] transitions = idleState.transitions;
+        Assert.AreEqual(5, transitions.Length,
+            "Idle should have exactly 5 outgoing transitions (plan 007 Task 3.1: Walk/JumpAnticipation/" +
+            $"DefendRaise/LookUp/LookDown) - found {transitions.Length}. A transition was added or removed " +
+            "without updating this contract test.");
+
+        AssertTransition(transitions[0], "Walk", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsWalking", 0f),
+        }, "Idle -> Walk");
+
+        AssertTransition(transitions[1], "JumpAnticipation", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "JumpTrigger", 0f),
+        }, "Idle -> JumpAnticipation");
+
+        AssertTransition(transitions[2], "DefendRaise", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "DefendHeld", 0f),
+        }, "Idle -> DefendRaise");
+
+        AssertTransition(transitions[3], "LookUp", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "LookingUp", 0f),
+        }, "Idle -> LookUp");
+
+        AssertTransition(transitions[4], "LookDown", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "LookingDown", 0f),
+        }, "Idle -> LookDown");
+    }
+
+    /// <summary>
+    /// Locks in plan 007 Task 3.1's exact transition topology for the new LookUp state: 4 outgoing
+    /// transitions in list order Walk/JumpAnticipation/DefendRaise/Idle, mirroring Idle's first 3
+    /// transitions exactly (by destination/condition/timing) before the release edge back to Idle.
+    /// </summary>
+    [Test]
+    public void LookUpState_HasExactlyFourOutgoingTransitions_InOrder()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState lookUpState = FindStateByName(controller, "LookUp");
+        Assert.IsNotNull(lookUpState,
+            $"Expected a 'LookUp' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 007 Task 3.1 " +
+            "adds this state.");
+
+        AnimatorStateTransition[] transitions = lookUpState.transitions;
+        Assert.AreEqual(4, transitions.Length,
+            "LookUp should have exactly 4 outgoing transitions (plan 007 Task 3.1: Walk/JumpAnticipation/" +
+            $"DefendRaise/Idle) - found {transitions.Length}. A transition was added or removed without " +
+            "updating this contract test.");
+
+        AssertTransition(transitions[0], "Walk", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsWalking", 0f),
+        }, "LookUp -> Walk");
+
+        AssertTransition(transitions[1], "JumpAnticipation", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "JumpTrigger", 0f),
+        }, "LookUp -> JumpAnticipation");
+
+        AssertTransition(transitions[2], "DefendRaise", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "DefendHeld", 0f),
+        }, "LookUp -> DefendRaise");
+
+        AssertTransition(transitions[3], "Idle", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.IfNot, "LookingUp", 0f),
+        }, "LookUp -> Idle");
+    }
+
+    /// <summary>
+    /// Locks in plan 007 Task 3.1's exact transition topology for the new LookDown state: 4 outgoing
+    /// transitions in list order Walk/JumpAnticipation/DefendRaise/Idle, symmetric to LookUp's using
+    /// LookingDown instead of LookingUp.
+    /// </summary>
+    [Test]
+    public void LookDownState_HasExactlyFourOutgoingTransitions_InOrder()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState lookDownState = FindStateByName(controller, "LookDown");
+        Assert.IsNotNull(lookDownState,
+            $"Expected a 'LookDown' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 007 Task 3.1 " +
+            "adds this state.");
+
+        AnimatorStateTransition[] transitions = lookDownState.transitions;
+        Assert.AreEqual(4, transitions.Length,
+            "LookDown should have exactly 4 outgoing transitions (plan 007 Task 3.1: Walk/JumpAnticipation/" +
+            $"DefendRaise/Idle) - found {transitions.Length}. A transition was added or removed without " +
+            "updating this contract test.");
+
+        AssertTransition(transitions[0], "Walk", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsWalking", 0f),
+        }, "LookDown -> Walk");
+
+        AssertTransition(transitions[1], "JumpAnticipation", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "JumpTrigger", 0f),
+        }, "LookDown -> JumpAnticipation");
+
+        AssertTransition(transitions[2], "DefendRaise", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "DefendHeld", 0f),
+        }, "LookDown -> DefendRaise");
+
+        AssertTransition(transitions[3], "Idle", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.IfNot, "LookingDown", 0f),
+        }, "LookDown -> Idle");
     }
 }

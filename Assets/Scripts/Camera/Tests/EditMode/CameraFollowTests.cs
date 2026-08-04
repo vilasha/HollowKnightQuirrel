@@ -129,8 +129,8 @@ public class CameraFollowTests
             _cameraFollow.Tick(FixedDeltaTime);
         }
 
-        Assert.AreEqual(3f + 5f, _cameraObject.transform.position.y, 0.01f,
-            "With W held (_panDirection = 1) and no Camera component present, Y should converge to baseline + the 5f fallback pan distance.");
+        Assert.AreEqual(3f + 4f, _cameraObject.transform.position.y, 0.01f,
+            "With W held (_panDirection = 1) and no Camera component present, Y should converge to baseline + the 4f scaled fallback pan distance (5f fallback * 0.8 PanDistanceScale).");
     }
 
     [Test]
@@ -152,8 +152,8 @@ public class CameraFollowTests
             _cameraFollow.Tick(FixedDeltaTime);
         }
 
-        Assert.AreEqual(3f - 5f, _cameraObject.transform.position.y, 0.01f,
-            "With S held (_panDirection = -1) and no Camera component present, Y should converge to baseline - the 5f fallback pan distance.");
+        Assert.AreEqual(3f - 4f, _cameraObject.transform.position.y, 0.01f,
+            "With S held (_panDirection = -1) and no Camera component present, Y should converge to baseline - the 4f scaled fallback pan distance (5f fallback * 0.8 PanDistanceScale).");
     }
 
     [Test]
@@ -175,8 +175,8 @@ public class CameraFollowTests
             _cameraFollow.Tick(FixedDeltaTime);
         }
 
-        Assert.AreEqual(3f + 5f, _cameraObject.transform.position.y, 0.01f,
-            "Precondition: camera should have converged to the panned-up position before release.");
+        Assert.AreEqual(3f + 4f, _cameraObject.transform.position.y, 0.01f,
+            "Precondition: camera should have converged to the panned-up position (4f scaled fallback pan distance) before release.");
 
         ForceSetPanDirection(_cameraFollow, 0f);
 
@@ -211,8 +211,8 @@ public class CameraFollowTests
             _cameraFollow.Tick(FixedDeltaTime);
         }
 
-        Assert.AreEqual(3f + 7f, _cameraObject.transform.position.y, 0.01f,
-            "With a live Camera component present, pan distance should come from its orthographicSize (7f), not the 5f fallback.");
+        Assert.AreEqual(3f + 5.6f, _cameraObject.transform.position.y, 0.01f,
+            "With a live Camera component present, pan distance should come from its orthographicSize (7f) scaled by 0.8 (5.6f), not the 5f fallback.");
     }
 
     [Test]
@@ -306,7 +306,7 @@ public class CameraFollowTests
             _cameraFollow.Tick(FixedDeltaTime);
         }
 
-        Assert.AreEqual(3f + 5f, _cameraObject.transform.position.y, 0.01f,
-            "With no PlayerController assigned, pan must never be blocked - Y should converge normally to baseline + fallback distance.");
+        Assert.AreEqual(3f + 4f, _cameraObject.transform.position.y, 0.01f,
+            "With no PlayerController assigned, pan must never be blocked - Y should converge normally to baseline + the 4f scaled fallback pan distance (5f fallback * 0.8 PanDistanceScale).");
     }
 }
