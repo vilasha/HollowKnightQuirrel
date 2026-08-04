@@ -76,6 +76,20 @@ public class PlayerController : MonoBehaviour
     public bool DefendHeld { get; private set; }
 
     /// <summary>
+    /// True while idle, grounded, and holding W - a cosmetic look-up pose overlay on Idle
+    /// (Docs/Plans/007_look-up-down-idle-animation-and-pan-tuning.md, Task 4.1). Recomputed every
+    /// Update() by <see cref="UpdateLookState"/>; also explicitly force-set false by Hurt()/Die()
+    /// on interrupt, same belt-and-suspenders precedent as <see cref="DefendHeld"/>.
+    /// </summary>
+    public bool LookingUp { get; private set; }
+
+    /// <summary>
+    /// True while idle, grounded, and holding S - a cosmetic look-down pose overlay on Idle. Same
+    /// shape/precedent as <see cref="LookingUp"/>.
+    /// </summary>
+    public bool LookingDown { get; private set; }
+
+    /// <summary>
     /// True while the 0.3s post-Hurt() hit-stun window is active (plan sections 1.9/1.10). Joins
     /// _isAttacking/DefendHeld in the <see cref="IsFullyCommitted"/> family that freezes movement/jump
     /// input. Re-entrant Hurt() calls while this is already true RESTART _hurtStunTimeRemaining
@@ -230,6 +244,8 @@ public class PlayerController : MonoBehaviour
     private static readonly int HurtRecoveryTriggerHash = Animator.StringToHash("HurtRecoveryTrigger");
     private static readonly int DieTriggerHash = Animator.StringToHash("DieTrigger");
     private static readonly int IsDeadHash = Animator.StringToHash("IsDead");
+    private static readonly int LookingUpHash = Animator.StringToHash("LookingUp");
+    private static readonly int LookingDownHash = Animator.StringToHash("LookingDown");
 
     /// <summary>
     /// The Animator state name <see cref="IsJumpAnticipationStillActive"/> looks for. Exact string
@@ -335,6 +351,8 @@ public class PlayerController : MonoBehaviour
         {
             TryJump(IsGrounded);
         }
+
+        UpdateLookState(Input.GetKey(KeyCode.W), Input.GetKey(KeyCode.S));
 
         UpdateFacing();
         UpdateAnimatorParameters();
@@ -573,9 +591,13 @@ public class PlayerController : MonoBehaviour
         _isAttacking = false;
         _isAirAttack = false;
         DefendHeld = false;
+        LookingUp = false;
+        LookingDown = false;
         if (_animator != null)
         {
             _animator.SetBool(DefendHeldHash, false);
+            _animator.SetBool(LookingUpHash, false);
+            _animator.SetBool(LookingDownHash, false);
         }
 
         // Re-entrant calls restart the window rather than stacking a second timer (plan section
@@ -608,11 +630,15 @@ public class PlayerController : MonoBehaviour
         _isAttacking = false;
         _isAirAttack = false;
         DefendHeld = false;
+        LookingUp = false;
+        LookingDown = false;
         _isHurtStunned = false; // Die outranks Hurt - no point leaving a stun window "active" under a permanent death lock.
 
         if (_animator != null)
         {
             _animator.SetBool(DefendHeldHash, false);
+            _animator.SetBool(LookingUpHash, false);
+            _animator.SetBool(LookingDownHash, false);
             _animator.SetTrigger(DieTriggerHash);
         }
 
@@ -710,6 +736,47 @@ public class PlayerController : MonoBehaviour
 
         _animator.SetBool(IsGroundedHash, IsGrounded);
         _animator.SetFloat(VerticalVelocityHash, _rigidbody.velocity.y);
+    }
+
+    /// <summary>
+    /// Computes and applies LookingUp/LookingDown - a cosmetic look-up/look-down pose overlay on
+    /// Idle, gated to idle AND grounded only (Docs/Plans/007_look-up-down-idle-animation-and-pan-
+    /// tuning.md, Task 4.1, Decision 6). Takes wHeld/sHeld as parameters (rather than reading
+    /// Input.GetKey internally) for the same EditMode-testability reason as TryJump/TryAttack/
+    /// ApplyHorizontalMovement - the real call site is Update(), passing Input.GetKey(KeyCode.W)/
+    /// Input.GetKey(KeyCode.S).
+    ///
+    /// This is a deliberately INDEPENDENT read of the same physical W/S keys CameraFollow already
+    /// reads for its own pan behavior (plan Decision 3) - the two systems are not coupled, and this
+    /// gate is narrower (idle AND grounded only) than the camera's own gating. The +1/-1
+    /// accumulation below mirrors CameraFollow's own shape purely for consistency, not because any
+    /// state is shared.
+    /// </summary>
+    public void UpdateLookState(bool wHeld, bool sHeld)
+    {
+        EnsureCachedComponents();
+
+        bool isIdleAndGrounded = IsGrounded && !IsDead && !IsFullyCommitted && _horizontalInput == 0f;
+
+        float lookDirection = 0f;
+        if (wHeld)
+        {
+            lookDirection += 1f;
+        }
+
+        if (sHeld)
+        {
+            lookDirection -= 1f;
+        }
+
+        LookingUp = isIdleAndGrounded && lookDirection > 0f;
+        LookingDown = isIdleAndGrounded && lookDirection < 0f;
+
+        if (_animator != null)
+        {
+            _animator.SetBool(LookingUpHash, LookingUp);
+            _animator.SetBool(LookingDownHash, LookingDown);
+        }
     }
 
     private void UpdateFacing()

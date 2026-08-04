@@ -34,6 +34,12 @@ public class CameraFollow : MonoBehaviour
     /// <summary>SmoothDamp smoothing time, in seconds, for the X-axis follow (fixed at 0.15s per plan section 1.15).</summary>
     private const float SmoothTime = 0.15f;
 
+    /// <summary>
+    /// Scales the pan distance to 40% of full screen height (0.8 * orthographicSize), since
+    /// orthographicSize is half the vertical viewport in world units (Docs/Plans/007, Task 5.1).
+    /// </summary>
+    private const float PanDistanceScale = 0.8f;
+
     /// <summary>Fallback pan distance used only when no <see cref="Camera"/> component is present on this GameObject.</summary>
     [SerializeField] private float _panDistanceFallback = 5f;
 
@@ -93,7 +99,7 @@ public class CameraFollow : MonoBehaviour
 
         bool panBlocked = _playerController != null && (_playerController.IsDead || _playerController.IsFullyCommitted);
         float panDirection = panBlocked ? 0f : _panDirection;
-        float panDistance = _camera != null ? _camera.orthographicSize : _panDistanceFallback;
+        float panDistance = (_camera != null ? _camera.orthographicSize : _panDistanceFallback) * PanDistanceScale;
         float targetY = _baseY + panDirection * panDistance;
 
         Vector3 position = transform.position;
