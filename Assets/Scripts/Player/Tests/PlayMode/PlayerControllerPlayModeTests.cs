@@ -30,7 +30,7 @@ using UnityEngine.TestTools;
 ///   (a) Public testable methods (TryJump, TryAttack, OnAttackAnimationComplete, Hurt) are called
 ///       directly - these are edge-triggered actions, not "held" state, so a direct call is a faithful
 ///       simulation of the key-down edge Update() would otherwise produce.
-///   (b) "Held" input (Left/Right arrow, X/Defend) is simulated by writing PlayerController's private
+///   (b) "Held" input (A/D, K/Defend) is simulated by writing PlayerController's private
 ///       _horizontalInput field / private-set DefendHeld property via reflection, ONCE PER FRAME, from
 ///       inside a `yield return null` loop. This ordering is load-bearing: Unity resumes "yield return
 ///       null" coroutines only after ALL MonoBehaviour Update() calls for that frame have completed
@@ -135,7 +135,7 @@ public class PlayerControllerPlayModeTests
         const float holdDuration = 1f;
         while (Time.time - startTime < holdDuration)
         {
-            SetHorizontalInput(_controller, 1f); // simulated held Right-arrow, see class doc comment
+            SetHorizontalInput(_controller, 1f); // simulated held D, see class doc comment
             yield return null;
         }
 
@@ -150,7 +150,7 @@ public class PlayerControllerPlayModeTests
         // per-frame timing involved) produces exactly 4.5 velocity.x, so this is a property of this
         // specific input-simulation technique, not of PlayerController's own velocity math.
         Assert.AreEqual(4.5f, deltaX, 0.4f,
-            $"Expected ~4.5 units of rightward displacement after 1s of held Right-arrow input " +
+            $"Expected ~4.5 units of rightward displacement after 1s of held D input " +
             $"(plan section 1.5's walk speed), got {deltaX}.");
     }
 
@@ -247,7 +247,7 @@ public class PlayerControllerPlayModeTests
         const float holdDuration = 0.3f; // past the 0.08s anticipation delay and well into the rise
         while (Time.time - startTime < holdDuration)
         {
-            SetHorizontalInput(_controller, 1f); // simulated held Right-arrow throughout the jump
+            SetHorizontalInput(_controller, 1f); // simulated held D throughout the jump
             yield return null;
         }
 
@@ -256,7 +256,7 @@ public class PlayerControllerPlayModeTests
 
         Assert.Greater(endY, startY + 0.05f, "The jump should have produced upward displacement by now.");
         Assert.Greater(endX, startX + 0.05f,
-            "Held Right-arrow during the jump should also produce rightward displacement - horizontal " +
+            "Held D during the jump should also produce rightward displacement - horizontal " +
             "input is not frozen during the jump (plan section 1.4).");
     }
 
@@ -275,7 +275,7 @@ public class PlayerControllerPlayModeTests
     public IEnumerator Attack_RapidRepeatedPresses_DoesNotStackUntilAnimationEventFires()
     {
         bool firstFired = _controller.TryAttack(_controller.IsGrounded);
-        Assert.IsTrue(firstFired, "First Z press while grounded and not already attacking should fire.");
+        Assert.IsTrue(firstFired, "First J press while grounded and not already attacking should fire.");
         Assert.IsTrue(_controller.IsAttacking);
 
         for (int i = 0; i < 5; i++)
@@ -309,12 +309,12 @@ public class PlayerControllerPlayModeTests
         const float holdDuration = 0.15f;
         while (Time.time - startTime < holdDuration)
         {
-            ForceSetDefendHeld(_controller, true); // simulated held X, see class doc comment
+            ForceSetDefendHeld(_controller, true); // simulated held K (Defend), see class doc comment
             yield return null;
         }
 
         // The while loop's own most recent real Update() call (which runs unconditionally on every
-        // frame and resets DefendHeld from live Input.GetKey(X), false in this harness) races the
+        // frame and resets DefendHeld from live Input.GetKey(K), false in this harness) races the
         // loop's exit condition: on the final iteration, that Update() can run and reset DefendHeld
         // to false AFTER the last ForceSetDefendHeld(true) call but BEFORE this assertion, since the
         // loop breaks out on the yield-null resume without re-forcing. Force once more, synchronously,
@@ -325,8 +325,8 @@ public class PlayerControllerPlayModeTests
         Assert.IsTrue(_controller.DefendHeld, "DefendHeld should still read true while continuously held.");
         Assert.IsTrue(_controller.IsFullyCommitted, "Holding Defend should enter the fully-committed state.");
 
-        // Release: simulate the X-up edge landing on this frame (a real Update() would compute this
-        // itself the instant Input.GetKey(X) goes false).
+        // Release: simulate the K-up edge landing on this frame (a real Update() would compute this
+        // itself the instant Input.GetKey(K) goes false).
         ForceSetDefendHeld(_controller, false);
         yield return null;
 

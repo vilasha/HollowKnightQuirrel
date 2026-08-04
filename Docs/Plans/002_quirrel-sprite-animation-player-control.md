@@ -22,6 +22,15 @@ Cut the 24 verified frames out of `Assets/Sprites/Quirrel_Sprites.png`, give the
 This is the **first player-facing system** in the project (zero scripts, zero asmdefs, zero physics layers, zero AnimatorControllers exist today). Every foundational decision below is being made once, here, and will be expensive to change later — treated with that weight.
 
 **Control scheme (locked in before drafting began):**
+
+> **Addendum (2026-08-04):** The keys named in this section (Left/Right arrow, Z, X) were
+> rebound to A/D/J/K; Space/Jump is unchanged. This is a pointer note only — the decision prose
+> below is preserved unaltered as the historical record of what was decided at the time. See
+> `Docs/Plans/003_control-rebind-adjk.md` for the rebind plan and rationale. The same rebind is
+> also noted at the following locations in this file: this bullet list, §1.6 (`Quirrel_DefendHold`
+> row), §1.7 (Animator parameter contract table), §1.8 ("commit in place" decision), §1.11
+> (explicit deferrals), and §1.12 (input system).
+
 - Idle: default state, no input
 - Walk: Left/Right arrow keys, moves the character horizontally on screen
 - Jump: Space. Space alone = vertical jump. Space + Left/Right held = jump with horizontal movement in that direction.
@@ -118,6 +127,9 @@ Assets/Sprites/Quirrel/
 
 Fixed-duration single-frame clips (`JumpAnticipation`, `DefendHold`, `Hurt`) use the standard duplicate-keyframe technique — the single sprite is keyed at both the start and end of the clip's timeline so the clip has a real, non-zero length for Unity's Exit Time / loop machinery to operate on.
 
+> **Addendum (2026-08-04):** `Quirrel_DefendHold`'s "held while X down" wording above names the
+> pre-rebind key. The Defend key is now K. See `Docs/Plans/003_control-rebind-adjk.md`.
+
 ### 1.7 Animator parameter contract (10 parameters — fixes the interface so ART/GAMEPLAY tasks can run in parallel without touching each other's files)
 | Parameter | Type | Set by |
 |---|---|---|
@@ -131,6 +143,11 @@ Fixed-duration single-frame clips (`JumpAnticipation`, `DefendHold`, `Hurt`) use
 | `HurtRecoveryTrigger` | trigger | PlayerController, fired the instant the 0.3s hit-stun timer elapses |
 | `DieTrigger` | trigger | Public `Die()` API |
 | `IsDead` | bool | Set true permanently the first time `DieTrigger` fires; guards all other input-driven triggers in code |
+
+> **Addendum (2026-08-04):** The table above's "on Z press" (`AttackTrigger`) and "true while X
+> held" (`DefendHeld`) name the pre-rebind keys. Attack is now J, Defend is now K. See
+> `Docs/Plans/003_control-rebind-adjk.md`. This note does not change the table itself, which
+> `AnimatorContractTests.cs` cites by section number.
 
 Note on discrete input: `IsWalking` is a bool, not a float `Speed` — keyboard-only digital input has no analog magnitude to represent.
 
@@ -148,6 +165,10 @@ Attack and Defend are both reachable from Any State, above the Jump sub-graph in
 **Fix: Attack and Defend fully commit the character in place.** While `_isAttacking` or `DefendHeld` is true:
 - Both Jump/Space **and** Left/Right horizontal input are ignored — the character does not move and cannot leave the ground.
 - `AttackTrigger`/`DefendHeld` themselves can still only be entered while grounded (unchanged).
+
+> **Addendum (2026-08-04):** "Left/Right horizontal input" above refers to the physical keys
+> named in the "Control scheme" section, which have since been rebound to A/D. See
+> `Docs/Plans/003_control-rebind-adjk.md`.
 
 This is a better game-feel choice as well as the correctness fix: Attack and Defend read as genuine committed actions, matching the genre convention this plan already follows elsewhere. With horizontal movement also locked, the character provably cannot leave the ground while in either state on this flat demo plane, so Task 3.5's decision not to add a redundant `IsGrounded` branch to Attack/Defend's exit transitions is correct rather than merely assumed.
 
@@ -175,8 +196,16 @@ If `Hurt()` is called again while a hit-stun window is already active, the 0.3s 
 - **Defend lower/release animation** — releasing X snaps directly back to locomotion; no reverse `DefendRaise` playback on release.
 - **Landing squash / attack-recovery pose** — no such frames exist in the source art.
 
+> **Addendum (2026-08-04):** "Releasing X" above names the pre-rebind Defend key; it is now K.
+> See `Docs/Plans/003_control-rebind-adjk.md`.
+
 ### 1.12 Input system
 No `com.unity.inputsystem` package is installed (confirmed via `Packages/manifest.json`). **Decision: use the legacy `UnityEngine.Input` API** (`Input.GetKey`/`GetKeyDown`), hardcoded to `LeftArrow`/`RightArrow`/`Space`/`Z`/`X`. Adopting the new Input System is out of scope — key rebinding will require a code change in v1, not a data asset, noted as a known limitation.
+
+> **Addendum (2026-08-04):** That code change happened — the literal `KeyCode`s above are stale.
+> Current bindings are A/D/J/K (Space unchanged). This paragraph's "key rebinding will require a
+> code change in v1" reads as ongoing guidance but is now historical; do not treat the literal
+> key names above as current. See `Docs/Plans/003_control-rebind-adjk.md`.
 
 ### 1.13 Physics layers — first ones ever added to this project
 `ProjectSettings/TagManager.asset` currently has zero custom tags or layers. This plan adds two: **Player** (layer 8) and **Ground** (layer 9). Flagged per this project's regression-risk rules as a global, silent change.

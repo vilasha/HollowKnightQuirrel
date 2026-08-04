@@ -7,7 +7,7 @@ using UnityEngine;
 /// SCOPE SO FAR: Task 3.2 added the asmdef scaffold + horizontal movement. Task 3.3
 /// added jump physics, the real grounded-check, jump-related Animator parameters,
 /// and the delayed-impulse interrupt-safety plumbing (plan sections 1.4/1.5/1.9).
-/// Task 3.4a (this pass) adds the combat/reaction layer: Attack (Z), Defend (X),
+/// Task 3.4a (this pass) adds the combat/reaction layer: Attack (J), Defend (K),
 /// the full-commit gating that freezes movement/jump while Attack/Defend/hit-stun
 /// are active (plan section 1.8), and the public Hurt()/Die() trigger API with the
 /// guard-flag interrupt resets required by plan section 1.9. Task 3.4b (a separate
@@ -53,7 +53,7 @@ public class PlayerController : MonoBehaviour
 
     /// <summary>
     /// Code-tracked mirror of the Animator's DefendHeld bool parameter (plan section 1.7) - true while
-    /// X is held and none of IsDead/hit-stun/!IsGrounded gate it off. Named to match the Animator
+    /// K is held and none of IsDead/hit-stun/!IsGrounded gate it off. Named to match the Animator
     /// parameter exactly, same convention as <see cref="IsGrounded"/>/<see cref="IsDead"/> above.
     /// Recomputed every Update() from live input; also explicitly force-set false by Hurt()/Die() on
     /// interrupt (plan section 1.9 - belt-and-suspenders visual consistency, not load-bearing for
@@ -250,12 +250,12 @@ public class PlayerController : MonoBehaviour
         _horizontalInput = 0f;
         if (!IsDead && !IsFullyCommitted)
         {
-            if (Input.GetKey(KeyCode.LeftArrow))
+            if (Input.GetKey(KeyCode.A))
             {
                 _horizontalInput -= 1f;
             }
 
-            if (Input.GetKey(KeyCode.RightArrow))
+            if (Input.GetKey(KeyCode.D))
             {
                 _horizontalInput += 1f;
             }
@@ -273,7 +273,7 @@ public class PlayerController : MonoBehaviour
         // edge and self-guard internally (same convention already used for TryJump in Task 3.3) -
         // reading GetKeyDown every frame is safe regardless of gating state, it does not "consume"
         // the edge.
-        if (Input.GetKeyDown(KeyCode.Z))
+        if (Input.GetKeyDown(KeyCode.J))
         {
             TryAttack(IsGrounded);
         }
@@ -282,7 +282,7 @@ public class PlayerController : MonoBehaviour
         // while IsDead or !IsGrounded (this task's literal acceptance criteria) and also while
         // hurt-stunned (plan section 1.9's Hurt() spec: "movement/attack/defend/jump input is
         // ignored" during the stun window).
-        DefendHeld = !IsDead && !_isHurtStunned && IsGrounded && Input.GetKey(KeyCode.X);
+        DefendHeld = !IsDead && !_isHurtStunned && IsGrounded && Input.GetKey(KeyCode.K);
 
         if (Input.GetKeyDown(KeyCode.Space))
         {

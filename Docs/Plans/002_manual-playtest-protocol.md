@@ -52,11 +52,11 @@ Do not sign off Section 4/5 below (the Hurt-interrupt items) without actually tr
 |---|---|---|---|---|
 | 1.1 | Jump snappiness | Enter Play Mode. Stand still, press Space once. Watch the full arc. | Reads as **snappy**, not floaty: a brief (0.08s) crouch beat before launch, then a fast, decisive rise to apex (~3.0 units high, ~0.4s to apex) and a matching fall. Should feel closer to Hollow Knight's jump than a slow "balloon" arc. | |
 | 1.2 | Jump anticipation is visible but not sluggish | Press Space again, watch only the first ~0.1s. | The crouch (`JumpAnticipation`, F11) is clearly visible as a distinct beat before the character leaves the ground — but it should read as a quick coiled wind-up, not a pause or hesitation. | |
-| 1.3 | Attack punch | Stand still, press Z once. Watch the full swing. | Reads as **punchy**: fast 4-frame swing, done in a quarter-second (0.25s @ 16fps) — should feel abrupt and committed, not a slow telegraphed wind-up. | |
-| 1.4 | Attack — no stacking/mushiness on rapid presses | Rapidly press Z several times in a row. | Each swing completes cleanly; rapid presses do not visibly queue, stutter, or blend two swings together. (Automated coverage exists for the *trigger count*; this checks it also *looks* clean.) | |
-| 1.5 | Defend — committed block, not a flinch | Hold X and watch the raise + hold pose. | Reads as a deliberate, held block stance — weight settles into it, not a nervous flinch or a quick tap-and-release look. Release X and confirm it snaps back to Locomotion immediately (no reverse-raise animation — this is correct per the plan, not a bug). | |
+| 1.3 | Attack punch | Stand still, press J once. Watch the full swing. | Reads as **punchy**: fast 4-frame swing, done in a quarter-second (0.25s @ 16fps) — should feel abrupt and committed, not a slow telegraphed wind-up. | |
+| 1.4 | Attack — no stacking/mushiness on rapid presses | Rapidly press J several times in a row. | Each swing completes cleanly; rapid presses do not visibly queue, stutter, or blend two swings together. (Automated coverage exists for the *trigger count*; this checks it also *looks* clean.) | |
+| 1.5 | Defend — committed block, not a flinch | Hold K and watch the raise + hold pose. | Reads as a deliberate, held block stance — weight settles into it, not a nervous flinch or a quick tap-and-release look. Release K and confirm it snaps back to Locomotion immediately (no reverse-raise animation — this is correct per the plan, not a bug). | |
 | 1.6 | Die — weighty, uneven collapse | Trigger `Die()` (see Section 0). Watch the full sequence. | Should visibly feel like it's **slowing down and settling**, not looping evenly: first pose (Die_01) holds briefly (0.15s), second pose (Die_02) holds noticeably longer (0.35s), then the final pose (Die_03) holds indefinitely. The pacing itself should read as weight settling to the ground, not a uniform flipbook loop. | |
-| 1.7 | Die — permanent lock reads correctly | After Die settles into its final held pose, try every input (arrows, Space, Z, X). | No input has any visible effect — character stays frozen in the final Die pose. No console errors. | |
+| 1.7 | Die — permanent lock reads correctly | After Die settles into its final held pose, try every input (A/D, Space, J, K). | No input has any visible effect — character stays frozen in the final Die pose. No console errors. | |
 
 ---
 
@@ -64,9 +64,9 @@ Do not sign off Section 4/5 below (the Hurt-interrupt items) without actually tr
 
 | # | Check | Steps | Expected | Pass/Fail |
 |---|---|---|---|---|
-| 2.1 | Space + Left | Stand in open ground (not near an edge). Press and hold Left, then press Space while still holding Left. | Character launches into a jump arc while continuing to move left — both vertical and horizontal motion visibly happen together, not sequentially. `flipX` shows the character facing/moving left throughout. | |
-| 2.2 | Space + Right | Same as 2.1, mirrored: hold Right, press Space while holding it. | Same as 2.1, mirrored — diagonal arc to the right, facing right. | |
-| 2.3 | Direction change mid-air | Jump straight up (Space alone), then while airborne press and hold Left or Right. | Character gains horizontal control in the air (full air control per the plan) — the horizontal direction press changes trajectory mid-flight, not just at launch. | |
+| 2.1 | Space + Left | Stand in open ground (not near an edge). Press and hold A, then press Space while still holding A. | Character launches into a jump arc while continuing to move left — both vertical and horizontal motion visibly happen together, not sequentially. `flipX` shows the character facing/moving left throughout. | |
+| 2.2 | Space + Right | Same as 2.1, mirrored: hold D, press Space while holding it. | Same as 2.1, mirrored — diagonal arc to the right, facing right. | |
+| 2.3 | Direction change mid-air | Jump straight up (Space alone), then while airborne press and hold A or D. | Character gains horizontal control in the air (full air control per the plan) — the horizontal direction press changes trajectory mid-flight, not just at launch. | |
 | 2.4 | Anticipation beat still applies diagonally | Repeat 2.1/2.2, watching the first ~0.1s closely. | The 0.08s crouch beat is still visible before the diagonal launch — horizontal movement during that beat is not frozen (per §1.4 of the plan), so the character should already be sliding in the held direction before the vertical impulse fires. | |
 
 ---
@@ -86,10 +86,10 @@ item unless the behavior differs from that.**
 
 | # | Check | Steps | Expected | Pass/Fail |
 |---|---|---|---|---|
-| 3.1 | Plain walk off the left edge | Hold Left arrow continuously from spawn until well past the Ground sprite's visible left edge. | Character walks past the visible edge of the Ground and falls (loses ground contact, gravity takes over) once no longer overlapping the `BoxCollider2D`. This is expected per the plan, not a regression — confirm it happens smoothly (no snagging, no console errors) rather than confirm it doesn't happen. | |
-| 3.2 | Plain walk off the right edge | Same as 3.1, mirrored with Right arrow. | Same as 3.1, mirrored. | |
-| 3.3 | Attack near the edge — full commit | Walk to just short of the Ground's edge (either side). Press Z to start an attack, and while the swing is playing, press and hold the direction toward the edge. | Character does **not** move at all during the swing — X position is unchanged for the full 0.25s attack, regardless of held directional input. Character remains grounded throughout. | |
-| 3.4 | Defend near the edge — full commit | Walk to just short of the Ground's edge. Hold X to enter Defend, and while held, press and hold the direction toward the edge. | Character does **not** move at all while `DefendHeld` is true — X position is unchanged, character remains grounded. Release X only after confirming no drift occurred. | |
+| 3.1 | Plain walk off the left edge | Hold A continuously from spawn until well past the Ground sprite's visible left edge. | Character walks past the visible edge of the Ground and falls (loses ground contact, gravity takes over) once no longer overlapping the `BoxCollider2D`. This is expected per the plan, not a regression — confirm it happens smoothly (no snagging, no console errors) rather than confirm it doesn't happen. | |
+| 3.2 | Plain walk off the right edge | Same as 3.1, mirrored with D. | Same as 3.1, mirrored. | |
+| 3.3 | Attack near the edge — full commit | Walk to just short of the Ground's edge (either side). Press J to start an attack, and while the swing is playing, press and hold the direction toward the edge. | Character does **not** move at all during the swing — X position is unchanged for the full 0.25s attack, regardless of held directional input. Character remains grounded throughout. | |
+| 3.4 | Defend near the edge — full commit | Walk to just short of the Ground's edge. Hold K to enter Defend, and while held, press and hold the direction toward the edge. | Character does **not** move at all while `DefendHeld` is true — X position is unchanged, character remains grounded. Release K only after confirming no drift occurred. | |
 
 ---
 
@@ -117,10 +117,10 @@ would be permanently disabled after any hit landed mid-swing.
 
 | # | Check | Steps | Expected | Pass/Fail |
 |---|---|---|---|---|
-| 5.1 | Interrupt mid-swing | Press Z to start an attack. **Before the swing finishes** (within the first ~0.15–0.2s of the 0.25s clip — don't wait for it to complete), trigger `Hurt()` via Section 0's method. | The attack pose is cut short and the Hurt pose plays instead — no visible attempt to finish the swing after Hurt starts. | |
+| 5.1 | Interrupt mid-swing | Press J to start an attack. **Before the swing finishes** (within the first ~0.15–0.2s of the 0.25s clip — don't wait for it to complete), trigger `Hurt()` via Section 0's method. | The attack pose is cut short and the Hurt pose plays instead — no visible attempt to finish the swing after Hurt starts. | |
 | 5.2 | Recovery | Wait out the 0.3s hit-stun window without pressing anything. | Character returns to Locomotion automatically, same as 4.2. | |
-| 5.3 | Attack works again after recovery | Immediately after 5.2's recovery, press Z. | A **brand-new attack** fires successfully — full 4-frame swing plays to completion. Confirms the Hurt interrupt did not silently disable Attack for the rest of the session. | |
-| 5.4 | Rapid re-press sanity check | After 5.3's attack completes naturally, immediately press Z several more times in quick succession. | Each subsequent attack fires cleanly, one per press, same as Section 1.4 — confirms the guard flag is in a clean, non-stuck state going forward, not just for the single retry in 5.3. | |
+| 5.3 | Attack works again after recovery | Immediately after 5.2's recovery, press J. | A **brand-new attack** fires successfully — full 4-frame swing plays to completion. Confirms the Hurt interrupt did not silently disable Attack for the rest of the session. | |
+| 5.4 | Rapid re-press sanity check | After 5.3's attack completes naturally, immediately press J several more times in quick succession. | Each subsequent attack fires cleanly, one per press, same as Section 1.4 — confirms the guard flag is in a clean, non-stuck state going forward, not just for the single retry in 5.3. | |
 
 ---
 

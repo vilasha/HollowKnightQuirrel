@@ -40,7 +40,7 @@ public class PlayerControllerTests
         const float preExistingVerticalVelocity = 15f; // simulates a mid-air jump velocity already present on .y
         _rigidbody.velocity = new Vector2(0f, preExistingVerticalVelocity);
 
-        _playerController.ApplyHorizontalMovement(1f); // simulate one frame of Right-arrow input
+        _playerController.ApplyHorizontalMovement(1f); // simulate one frame of D input
 
         Assert.AreEqual(preExistingVerticalVelocity, _rigidbody.velocity.y, 0.0001f,
             "Horizontal movement must not stomp the existing vertical (.y) velocity component.");
@@ -164,7 +164,7 @@ public class PlayerControllerTests
     /// <summary>
     /// Test-only helper that force-sets the private-set DefendHeld property via reflection.
     /// DefendHeld has no public setter - it's recomputed every Update() from live
-    /// Input.GetKey(KeyCode.X) reads (plan section 1.7), and EditMode tests cannot simulate real
+    /// Input.GetKey(KeyCode.K) reads (plan section 1.7), and EditMode tests cannot simulate real
     /// keyboard input - so this is the only way to exercise the DefendHeld branch of full-commit
     /// gating (Task 3.4b's acceptance criterion) without adding a test-only public setter to
     /// PlayerController.cs, which is out of scope for this task (owned by Task 3.4a).
@@ -274,7 +274,7 @@ public class PlayerControllerTests
         Assert.IsTrue(attackStarted);
         Assert.IsTrue(_playerController.IsAttacking);
 
-        _playerController.ApplyHorizontalMovement(1f); // simulate held Right-arrow
+        _playerController.ApplyHorizontalMovement(1f); // simulate held D
 
         Assert.AreEqual(0f, _rigidbody.velocity.x, 0.0001f,
             "Movement must be fully frozen while IsAttacking is true (plan section 1.8's full-commit gating).");
@@ -293,7 +293,7 @@ public class PlayerControllerTests
         ForceSetDefendHeld(_playerController, true);
         Assert.IsTrue(_playerController.DefendHeld);
 
-        _playerController.ApplyHorizontalMovement(1f); // simulate held Right-arrow
+        _playerController.ApplyHorizontalMovement(1f); // simulate held D
 
         Assert.AreEqual(0f, _rigidbody.velocity.x, 0.0001f,
             "Movement must be fully frozen while DefendHeld is true (plan section 1.8's full-commit gating).");
@@ -313,12 +313,12 @@ public class PlayerControllerTests
         CreatePlayer();
 
         bool firstAttackFired = _playerController.TryAttack(true);
-        Assert.IsTrue(firstAttackFired, "First Z press while grounded and not already attacking should fire the attack.");
+        Assert.IsTrue(firstAttackFired, "First J press while grounded and not already attacking should fire the attack.");
         Assert.IsTrue(_playerController.IsAttacking);
 
         bool secondAttackFired = _playerController.TryAttack(true);
         Assert.IsFalse(secondAttackFired,
-            "A second Z press while _isAttacking is already true must be ignored (plan section 1.8's no-stack guard).");
+            "A second J press while _isAttacking is already true must be ignored (plan section 1.8's no-stack guard).");
         Assert.IsTrue(_playerController.IsAttacking,
             "The original attack should still be in progress, undisturbed by the ignored second press.");
 
