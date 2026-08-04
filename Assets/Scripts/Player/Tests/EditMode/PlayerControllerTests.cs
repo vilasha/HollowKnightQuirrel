@@ -531,6 +531,188 @@ public class PlayerControllerTests
             "The second jump's impulse must apply - proves _jumpImpulseCancelled was reset to false by " +
             "the second TryJump() call rather than staying stuck true from the first cancellation.");
     }
+
+    // -------------------------------------------------------------------
+    // Task 3.1 (Docs/Plans/005_attack-while-jumping.md): coverage for air-attack gating
+    // (Task 1.1's TryAttack/_isAirAttack lifecycle and Task 1.2's live-IsGrounded IsFullyCommitted
+    // redefinition).
+    // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Test-only helper that force-sets the private-set IsGrounded property via reflection - same
+    /// rationale/convention as <see cref="ForceSetDefendHeld"/> above. IsGrounded is normally computed
+    /// by FixedUpdate's real OverlapCircle query (Task 3.3), which this EditMode fixture never runs
+    /// (no ground collider exists), so this is the only physics-free way to simulate "airborne" /
+    /// "just landed" for the air-attack tests below.
+    /// </summary>
+    private static void ForceSetIsGrounded(PlayerController controller, bool value)
+    {
+        PropertyInfo property = typeof(PlayerController).GetProperty(
+            nameof(PlayerController.IsGrounded), BindingFlags.Public | BindingFlags.Instance);
+        property.SetValue(controller, value);
+    }
+
+    [Test]
+    public void TryAttack_WhileAirborne_SucceedsAndSetsIsAttackingAndIsAirAttack()
+    {
+        CreatePlayer();
+
+        bool attackStarted = _playerController.TryAttack(false);
+
+        Assert.IsTrue(attackStarted,
+            "TryAttack(false) (airborne) should succeed now that the !isGrounded gate is removed (plan 005 Task 1.1).");
+        Assert.IsTrue(_playerController.IsAttacking);
+        Assert.IsTrue(_playerController.IsAirAttack);
+    }
+
+    [Test]
+    public void TryAttack_WhileGrounded_SetsIsAirAttackFalse()
+    {
+        CreatePlayer();
+
+        bool attackStarted = _playerController.TryAttack(true);
+
+        Assert.IsTrue(attackStarted);
+        Assert.IsTrue(_playerController.IsAttacking);
+        Assert.IsFalse(_playerController.IsAirAttack,
+            "Ground-attack must set IsAirAttack false (plan 005 Task 1.1, regression pin).");
+    }
+
+    [Test]
+    public void ApplyHorizontalMovement_WhileAirAttacking_AppliesRealHorizontalVelocity_NotFrozen()
+    {
+        CreatePlayer();
+        ForceSetIsGrounded(_playerController, false);
+
+        bool attackStarted = _playerController.TryAttack(false); // air-attack: starts while airborne
+        Assert.IsTrue(attackStarted);
+        Assert.IsTrue(_playerController.IsAirAttack);
+
+        const float preExistingVerticalVelocity = -5f; // simulates mid-fall .y that must be left alone
+        _rigidbody.velocity = new Vector2(0f, preExistingVerticalVelocity);
+
+        _playerController.ApplyHorizontalMovement(1f);
+
+        Assert.AreEqual(4.5f, _rigidbody.velocity.x, 0.0001f,
+            "Air-attack must not freeze horizontal movement (plan 005 Task 1.2) - IsFullyCommitted's " +
+            "attack contribution keys off live IsGrounded, which is false here.");
+        Assert.AreEqual(preExistingVerticalVelocity, _rigidbody.velocity.y, 0.0001f,
+            "ApplyHorizontalMovement must never touch .y.");
+    }
+
+    [Test]
+    public void ApplyHorizontalMovement_WhileGroundAttacking_StillForcesXToZero()
+    {
+        CreatePlayer();
+        Assert.IsTrue(_playerController.IsGrounded, "Rig defaults grounded true.");
+
+        bool attackStarted = _playerController.TryAttack(true); // ground-attack
+        Assert.IsTrue(attackStarted);
+        Assert.IsFalse(_playerController.IsAirAttack);
+
+        _playerController.ApplyHorizontalMovement(1f);
+
+        Assert.AreEqual(0f, _rigidbody.velocity.x, 0.0001f,
+            "Ground-attack must still freeze horizontal movement (plan 005 Task 1.2, regression pin - " +
+            "unchanged from pre-plan behavior).");
+    }
+
+    /// <summary>
+    /// Plan 005 Task 1.2's named highest-risk case: a player who starts an air-attack and lands before
+    /// the Attack clip's exit time must have the freeze re-engage on the very next
+    /// ApplyHorizontalMovement call once IsGrounded flips true - proving IsFullyCommitted's attack
+    /// contribution is keyed off LIVE IsGrounded, not a latched _isAirAttack flag (which would leave
+    /// the character un-frozen and walkable on the ground for the rest of the swing).
+    /// </summary>
+    [Test]
+    public void ApplyHorizontalMovement_LandingMidAirAttack_ReFreezesOnVeryNextCall()
+    {
+        CreatePlayer();
+        ForceSetIsGrounded(_playerController, false);
+
+        bool attackStarted = _playerController.TryAttack(false); // air-attack, starts airborne
+        Assert.IsTrue(attackStarted);
+        Assert.IsTrue(_playerController.IsAttacking);
+        Assert.IsTrue(_playerController.IsAirAttack);
+
+        // Sanity baseline: still un-frozen immediately before landing.
+        _playerController.ApplyHorizontalMovement(1f);
+        Assert.AreEqual(4.5f, _rigidbody.velocity.x, 0.0001f, "Should still be un-frozen immediately before landing.");
+
+        // Simulate landing while _isAttacking is still true (Attack clip not yet finished) - the
+        // exact case Task 1.2 names as its highest risk.
+        ForceSetIsGrounded(_playerController, true);
+
+        _playerController.ApplyHorizontalMovement(1f);
+
+        Assert.AreEqual(0f, _rigidbody.velocity.x, 0.0001f,
+            "Landing mid-air-attack must re-freeze horizontal movement on the very next " +
+            "ApplyHorizontalMovement call (plan 005 Task 1.2's named risk).");
+        Assert.IsTrue(_playerController.IsAttacking, "Still mid-swing - only IsGrounded flipped, not _isAttacking.");
+    }
+
+    /// <summary>
+    /// Plan 005 Task 1.1's named risk: _isAirAttack must not leak `true` into a later ground-attack
+    /// after a Hurt() interrupt mid-air-attack.
+    /// </summary>
+    [Test]
+    public void Hurt_MidAirAttack_ResetsIsAirAttack_AndSubsequentGroundAttackReFreezesMovement()
+    {
+        CreatePlayer();
+        ForceSetIsGrounded(_playerController, false);
+
+        bool attackStarted = _playerController.TryAttack(false); // air-attack
+        Assert.IsTrue(attackStarted);
+        Assert.IsTrue(_playerController.IsAirAttack);
+
+        _playerController.Hurt(); // interrupts mid-air-attack
+
+        Assert.IsFalse(_playerController.IsAttacking);
+        Assert.IsFalse(_playerController.IsAirAttack,
+            "Hurt() must reset IsAirAttack alongside IsAttacking (plan 005 Task 1.1) - a stale true would " +
+            "leak into the next attack.");
+
+        _playerController.AdvanceHurtStunTimer(0.31f); // wait out the stun window
+        ForceSetIsGrounded(_playerController, true); // character is grounded again for the new attack
+
+        bool secondAttackStarted = _playerController.TryAttack(true); // NEW ground-attack
+        Assert.IsTrue(secondAttackStarted);
+        Assert.IsFalse(_playerController.IsAirAttack,
+            "The new ground-attack must not inherit a leaked true from the interrupted air-attack.");
+
+        _playerController.ApplyHorizontalMovement(1f);
+        Assert.AreEqual(0f, _rigidbody.velocity.x, 0.0001f,
+            "The new ground-attack must correctly re-freeze movement - no leak from the interrupted air-attack.");
+    }
+
+    /// <summary>
+    /// Mirror of the Hurt() test above, for Die() (plan 005 Task 1.1). Unlike Hurt(), Die() is a
+    /// permanent lock (IsDead stays true forever), so there is no "recovers, then a new attack
+    /// succeeds" step here - instead this proves the flag reset itself, and that any subsequent
+    /// TryAttack call is blocked by IsDead specifically, not by a leaked _isAirAttack/_isAttacking flag.
+    /// </summary>
+    [Test]
+    public void Die_MidAirAttack_ResetsIsAttackingAndIsAirAttack()
+    {
+        CreatePlayer();
+        ForceSetIsGrounded(_playerController, false);
+
+        bool attackStarted = _playerController.TryAttack(false); // air-attack
+        Assert.IsTrue(attackStarted);
+        Assert.IsTrue(_playerController.IsAirAttack);
+
+        _playerController.Die(); // interrupts mid-air-attack, permanently
+
+        Assert.IsFalse(_playerController.IsAttacking);
+        Assert.IsFalse(_playerController.IsAirAttack,
+            "Die() must reset IsAirAttack alongside IsAttacking (plan 005 Task 1.1) - mirrors Hurt()'s reset.");
+        Assert.IsTrue(_playerController.IsDead);
+
+        bool attackAfterDeath = _playerController.TryAttack(true);
+        Assert.IsFalse(attackAfterDeath,
+            "TryAttack must remain permanently blocked by IsDead after Die() - unrelated to this plan, " +
+            "confirms the block is IsDead, not a leaked attack flag.");
+    }
 }
 
 /// <summary>

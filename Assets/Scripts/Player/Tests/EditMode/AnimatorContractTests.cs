@@ -131,4 +131,88 @@ public class AnimatorContractTests
             $"Animator.GetCurrentAnimatorStateInfo(0).IsName(\"{expectedStateName}\") and will silently never " +
             "cancel the impulse (or worse, always cancel it) if this state is renamed without updating that check.");
     }
+
+    // -------------------------------------------------------------------
+    // Task 3.2 (Docs/Plans/005_attack-while-jumping.md): contract test locking in Attack's rerouted
+    // exit transitions (Task 2.1). Same failure-mode reasoning as the tests above: an Animator
+    // transition edit compiles fine and fails silently at runtime if wrong.
+    // -------------------------------------------------------------------
+
+    private static AnimatorState FindStateByName(AnimatorController controller, string stateName)
+    {
+        foreach (ChildAnimatorState childState in controller.layers[0].stateMachine.states)
+        {
+            if (childState.state.name == stateName)
+            {
+                return childState.state;
+            }
+        }
+
+        return null;
+    }
+
+    private static void AssertTransition(
+        AnimatorStateTransition transition,
+        string expectedDestinationStateName,
+        (AnimatorConditionMode Mode, string Parameter, float Threshold)[] expectedConditions,
+        string transitionLabel)
+    {
+        Assert.IsNotNull(transition.destinationState,
+            $"{transitionLabel}: expected a destinationState (not a sub-state-machine or exit) named " +
+            $"'{expectedDestinationStateName}'.");
+        Assert.AreEqual(expectedDestinationStateName, transition.destinationState.name,
+            $"{transitionLabel}: destination state name mismatch.");
+
+        AnimatorCondition[] actualConditions = transition.conditions;
+        Assert.AreEqual(expectedConditions.Length, actualConditions.Length,
+            $"{transitionLabel}: expected exactly {expectedConditions.Length} condition(s), found {actualConditions.Length}.");
+
+        for (int i = 0; i < expectedConditions.Length; i++)
+        {
+            Assert.AreEqual(expectedConditions[i].Mode, actualConditions[i].mode,
+                $"{transitionLabel}: condition {i} mode mismatch.");
+            Assert.AreEqual(expectedConditions[i].Parameter, actualConditions[i].parameter,
+                $"{transitionLabel}: condition {i} parameter mismatch.");
+            Assert.AreEqual(expectedConditions[i].Threshold, actualConditions[i].threshold, 0.0001f,
+                $"{transitionLabel}: condition {i} threshold mismatch.");
+        }
+    }
+
+    /// <summary>
+    /// Locks in plan 005 Task 2.1's exact transition topology: Attack must have exactly 3 outgoing
+    /// transitions, in list order Idle/JumpRise/JumpFall (order is load-bearing - Mecanim evaluates a
+    /// state's outgoing transitions in list order and takes the first whose conditions are all
+    /// satisfied once hasExitTime is reached), with the exact conditions the plan specifies.
+    /// </summary>
+    [Test]
+    public void AttackState_HasExactlyThreeOutgoingTransitions_ToIdleJumpRiseJumpFall_InOrder()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState attackState = FindStateByName(controller, "Attack");
+        Assert.IsNotNull(attackState,
+            $"Expected an 'Attack' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 005 Task 2.1 " +
+            "reroutes this state's outgoing transitions.");
+
+        AnimatorStateTransition[] transitions = attackState.transitions;
+        Assert.AreEqual(3, transitions.Length,
+            "Attack should have exactly 3 outgoing transitions (plan 005 Task 2.1: Idle/JumpRise/JumpFall) - " +
+            $"found {transitions.Length}. A transition was added or removed without updating this contract test.");
+
+        AssertTransition(transitions[0], "Idle", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsGrounded", 0f),
+        }, "Attack -> Idle");
+
+        AssertTransition(transitions[1], "JumpRise", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.IfNot, "IsGrounded", 0f),
+            (AnimatorConditionMode.Greater, "VerticalVelocity", 0.1f),
+        }, "Attack -> JumpRise");
+
+        AssertTransition(transitions[2], "JumpFall", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.IfNot, "IsGrounded", 0f),
+        }, "Attack -> JumpFall");
+    }
 }

@@ -124,6 +124,22 @@ would be permanently disabled after any hit landed mid-swing.
 
 ---
 
+## 5a. Attack while jumping (`Docs/Plans/005_attack-while-jumping.md`)
+
+**Context:** pressing J while airborne now starts an air-attack that keeps the jump's real
+physics trajectory fully live (no freeze of horizontal or vertical velocity) — a ground-attack
+still freezes the character in place exactly as before. This section is the manual/feel gate
+for that split; automated coverage lives in `PlayerControllerTests.cs`,
+`AnimatorContractTests.cs`, and `PlayerControllerPlayModeTests.cs`.
+
+| # | Check | Steps | Expected | Pass/Fail |
+|---|---|---|---|---|
+| 5a.1 | Jump + attack mid-air keeps trajectory | Press Space to jump. While airborne (anywhere in the rise or fall), press J. | The character keeps moving/falling exactly as it would without the attack — no visible pause, stutter, or freeze in the jump arc while the Attack pose plays. Held A/D during the swing still steers the arc (air control is not frozen either). | |
+| 5a.2 | Attack at jump apex resumes into falling pose, not idle/walk | Time a J press to land as close to the jump's apex as you can (~0.4s after the vertical impulse, Section 1.1's timing). | Once the Attack swing finishes, the character's pose resumes as a falling pose (or a rising pose if the swing finished slightly before the apex) — never snaps to Idle or Walk while still airborne. | |
+| 5a.3 | Ground-attack still visibly freezes (regression spot-check) | Stand still on the ground, press J. | Character does **not** move at all during the swing, exactly as before this feature — regression check against Section 3.3 above, confirming ground-attacks are unaffected by the air-attack change. | |
+
+---
+
 ## 6. Sign-off
 
 - [ ] All items in Sections 1–5 checked PASS

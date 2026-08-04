@@ -567,4 +567,142 @@ public class PlayerControllerPlayModeTests
             "Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md Task 1.1's _jumpImpulseCancelled flag " +
             "fixes, previously masked because no test in this suite attached a real Animator.");
     }
+
+    // ---------------------------------------------------------------------
+    // 9. Air-attack trajectory continuity + Animator resume (Task 3.3,
+    // Docs/Plans/005_attack-while-jumping.md)
+    //
+    // Deterministic, single-run by design (see the plan's Task 3.3 write-up) - every assertion checks
+    // against known constants (_walkSpeed = 4.5, the Attack clip's 0.1875s length, the 0.08s jump-
+    // anticipation window), never a two-run comparison. Attaches the real Quirrel.controller (same
+    // rig-extension convention as Test 8 above, AttachRealAnimator()) since this test needs to observe
+    // real Animator state transitions through and past the Attack clip.
+    // ---------------------------------------------------------------------
+
+    [UnityTest]
+    public IEnumerator AirAttack_TrajectoryContinuity_MovementNotFrozen_AndAnimatorResumesJumpPoseThenLandsToIdle()
+    {
+        Animator animator = AttachRealAnimator();
+
+        // Let the Animator settle into its default (Idle) state before driving input (same margin as
+        // Test 8 above).
+        for (int i = 0; i < 5; i++)
+        {
+            yield return null;
+        }
+
+        bool jumped = _controller.TryJump(_controller.IsGrounded);
+        Assert.IsTrue(jumped, "Jump should start while grounded and not already mid-jump.");
+
+        // Advance past the 0.08s jump-anticipation window (real per-frame Time.deltaTime accumulation,
+        // matching this file's established timing model).
+        float elapsedSinceJumpAttempt = 0f;
+        const float anticipationWindowWithMargin = 0.08f + 0.05f;
+        while (elapsedSinceJumpAttempt < anticipationWindowWithMargin)
+        {
+            yield return null;
+            elapsedSinceJumpAttempt += Time.deltaTime;
+        }
+
+        Assert.Greater(_rigidbody.velocity.y, 10f, "The vertical jump impulse (~15 u/s) should have applied by now.");
+        Assert.IsFalse(_controller.IsGrounded, "Should be airborne once the jump impulse has applied.");
+
+        bool attackStarted = _controller.TryAttack(_controller.IsGrounded);
+        Assert.IsTrue(attackStarted, "TryAttack should succeed while airborne (plan 005 Task 1.1).");
+        Assert.IsTrue(_controller.IsAttacking);
+        Assert.IsTrue(_controller.IsAirAttack);
+
+        const float horizontalInput = 1f;
+        const float expectedVelocityX = horizontalInput * 4.5f; // _walkSpeed, known constant per this file's convention
+
+        // Call ApplyHorizontalMovement directly (it's public specifically so tests can drive it without
+        // a full per-frame real-input-simulation cycle - see its own doc comment) rather than holding
+        // simulated input across several yielded frames: this exercises the exact same production code
+        // path (the `locked` check inside ApplyHorizontalMovement) deterministically, with none of the
+        // real-time frame-ordering fragility of the reflection-based _horizontalInput technique used
+        // elsewhere in this file for sustained-hold displacement tests.
+        float velocityYBeforeMovementCall = _rigidbody.velocity.y;
+        _controller.ApplyHorizontalMovement(horizontalInput);
+        Assert.AreEqual(expectedVelocityX, _rigidbody.velocity.x, 0.05f,
+            "Air-attack must apply real horizontal velocity from input, not freeze it (plan 005 Task 1.2) " +
+            "- IsFullyCommitted's attack contribution keys off live IsGrounded, which is false while airborne.");
+        Assert.AreEqual(velocityYBeforeMovementCall, _rigidbody.velocity.y, 0.0001f,
+            "ApplyHorizontalMovement must only ever write .x, never touch .y (existing invariant, unrelated to this feature).");
+
+        // Hold the attack a bit longer (real frames, no per-frame velocity assertions needed since the
+        // single direct call above already proved the unlock) while confirming the trajectory doesn't
+        // freeze independently and the character is still airborne and mid-swing.
+        float previousVelocityY = _rigidbody.velocity.y;
+        float attackElapsed = 0f;
+        const float attackHoldDuration = 0.15f; // stay inside the Attack clip's length (plan 002 section 1.6)
+        while (attackElapsed < attackHoldDuration && !_controller.IsGrounded)
+        {
+            yield return null;
+            attackElapsed += Time.deltaTime;
+
+            float currentVelocityY = _rigidbody.velocity.y;
+            Assert.LessOrEqual(currentVelocityY, previousVelocityY + 0.01f,
+                "velocity.y must only ever move via gravity/ClampFallVelocity during an air-attack - any " +
+                "increase would indicate movement code touching .y, which this plan explicitly forbids.");
+            previousVelocityY = currentVelocityY;
+        }
+
+        // Advance until the Animator actually leaves the Attack state (polling rather than assuming an
+        // exact clip length in real time - the clip's normalized exit time is relative to Mecanim's own
+        // understanding of the motion's length, which real-time frame accumulation can only approximate).
+        // Confirms the Animator routes to the jump pose matching current VerticalVelocity's sign, never
+        // Idle/Walk (plan 005 Task 2.1's rerouted exit).
+        const float attackExitTimeout = 2f;
+        float postAttackElapsed = 0f;
+        while (animator.GetCurrentAnimatorStateInfo(0).IsName("Attack") && postAttackElapsed < attackExitTimeout)
+        {
+            yield return null;
+            postAttackElapsed += Time.deltaTime;
+        }
+
+        AnimatorStateInfo stateAfterAttack = animator.GetCurrentAnimatorStateInfo(0);
+        Assert.IsFalse(stateAfterAttack.IsName("Attack"),
+            $"The Animator should have left the Attack state within {attackExitTimeout}s of the clip finishing.");
+
+        if (!_controller.IsGrounded)
+        {
+            // Still airborne when the Attack clip exited - the case this test primarily targets: the
+            // Animator must resume the jump pose matching current VerticalVelocity, never Idle/Walk
+            // (plan 005 Task 2.1's rerouted exit).
+            bool expectRising = _rigidbody.velocity.y > 0.1f;
+            Assert.IsFalse(stateAfterAttack.IsName("Idle"), "Must never land on Idle right after the Attack clip's exit while airborne.");
+            Assert.IsTrue(
+                expectRising ? stateAfterAttack.IsName("JumpRise") : stateAfterAttack.IsName("JumpFall"),
+                $"After the Attack clip's exit time, the Animator should resume the jump pose matching current " +
+                $"VerticalVelocity ({_rigidbody.velocity.y:F2}) - expected {(expectRising ? "JumpRise" : "JumpFall")}.");
+        }
+        // else: landed before the Attack clip exited - Task 2.1's Attack->Idle[IsGrounded==true] exit is
+        // the correct destination in that case, already covered by this same transition's ordinary
+        // ground-attack behavior; nothing extra to assert here.
+
+        Assert.IsFalse(_controller.IsAttacking,
+            "OnAttackAnimationComplete's Animation Event should have fired by the clip's exit time, clearing IsAttacking.");
+
+        // Continue until landing, then confirm the Animator reaches Idle via the existing, untouched
+        // JumpFall -> Idle [IsGrounded If] transition (plan 005 Task 3.3's landing-path acceptance criterion).
+        const float landingTimeout = 3f;
+        float landingElapsed = 0f;
+        while (!_controller.IsGrounded && landingElapsed < landingTimeout)
+        {
+            yield return new WaitForFixedUpdate();
+            landingElapsed += Time.fixedDeltaTime;
+        }
+
+        Assert.IsTrue(_controller.IsGrounded, "The character should have landed within the timeout.");
+
+        // Give Mecanim a few more frames to actually evaluate/complete the JumpFall -> Idle transition
+        // after IsGrounded flips true.
+        for (int i = 0; i < 10; i++)
+        {
+            yield return null;
+        }
+
+        Assert.IsTrue(animator.GetCurrentAnimatorStateInfo(0).IsName("Idle"),
+            "The Animator should reach Idle after landing, via the existing JumpFall -> Idle transition (untouched by this plan).");
+    }
 }
