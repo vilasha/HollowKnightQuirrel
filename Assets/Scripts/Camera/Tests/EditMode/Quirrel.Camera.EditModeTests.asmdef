@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "Quirrel.Camera",
+        "Quirrel.Player",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
