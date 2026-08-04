@@ -152,15 +152,42 @@ coverage lives in `CameraFollowTests.cs`.
 
 | # | Check | Steps | Expected | Pass/Fail |
 |---|---|---|---|---|
-| 5b.1 | W pans up smoothly | Stand still on the ground. Press and hold W. | Camera slides smoothly upward, converging to roughly half a screen height above normal — no snap, no overshoot/jitter. | |
+| 5b.1 | W pans up smoothly | Stand still on the ground. Press and hold W. | Camera slides smoothly upward, converging to roughly 40% of a screen height above normal — no snap, no overshoot/jitter. | |
 | 5b.2 | Release W returns to normal | Release W after 5b.1 has converged. | Camera slides smoothly back down to its normal position over a similar time constant — no snap. | |
-| 5b.3 | S pans down, release returns to normal | Press and hold S; once converged, release it. | Camera slides smoothly downward by roughly half a screen height, then smoothly returns to normal on release — mirrors 5b.1/5b.2. | |
+| 5b.3 | S pans down, release returns to normal | Press and hold S; once converged, release it. | Camera slides smoothly downward by roughly 40% of a screen height, then smoothly returns to normal on release — mirrors 5b.1/5b.2. | |
 | 5b.4 | Both W and S held simultaneously produce no pan | Press and hold W, then also press and hold S (both held together), and watch the camera. | Camera stays at its normal position the entire time both keys are held — no pan in either direction. This is a regression pin for the accumulation-cancel design (`+1`/`-1` netting to `0`), the same shape as A/D. | |
 | 5b.5 | Pan fully blocked during an Attack | Press J to start an attack. While the swing is playing, press and hold W (or S). | Camera does not pan at all during the swing — stays at its normal position regardless of held W/S. | |
 | 5b.6 | Pan fully blocked during a Defend hold | Hold K to enter Defend. While `DefendHeld` is true, press and hold W (or S). | Camera does not pan at all while Defend is held — stays at its normal position. | |
 | 5b.7 | Pan fully blocked during a Hurt stun window | Trigger `Hurt()` via Section 0's method. During the 0.3s hit-stun window, press and hold W (or S). | Camera does not pan at all during the stun window — stays at its normal position. | |
 | 5b.8 | Pan fully blocked after `Die()` specifically | Trigger `Die()` via Section 0's method. After Die settles into its final held pose (`IsFullyCommitted` is `false` at this point — Die clears every flag it reads — only `IsDead` is doing the blocking here), press and hold W (or S). | Camera does not pan at all — stays at its normal position. This is a **separate, distinct check from 5b.5–5b.7**: it specifically confirms the `IsDead` branch of the gate is independently load-bearing, not merely redundant with the `IsFullyCommitted` branch. | |
 | 5b.9 | Mid-pan full-commit/death glides back, doesn't snap | Press and hold W (or S) until the camera has visibly panned partway (don't wait for full convergence). While still mid-pan, trigger one of: an Attack (J), a Defend hold (K), `Hurt()`, or `Die()` (via Section 0). | Camera glides smoothly back to its normal position over the same time constant as 5b.2/5b.3 — no instant snap-cut, regardless of which full-commit/death trigger interrupted the pan. | |
+
+---
+
+## 5c. Look up/down idle animation (Docs/Plans/007_look-up-down-idle-animation-and-pan-tuning.md)
+
+**Context:** holding `W` while standing still and grounded shows a looking-up pose overlaid on
+`Idle`; holding `S` shows a looking-down pose. This is a **cosmetic, idle-only** overlay, gated
+narrowly to idle AND grounded — it cancels immediately on walk, jump, attack, defend, hurt, or
+die, and is a code-side gate independent of `CameraFollow`'s own W/S read (Section 1, Decision 3
+of the plan). Automated coverage lives in `PlayerControllerTests.cs` and
+`AnimatorContractTests.cs`. This section is the manual/feel gate for the animation itself, plus a
+regression check that the camera pan (Section 5b) was not accidentally narrowed by this change.
+
+| # | Check | Steps | Expected | Pass/Fail |
+|---|---|---|---|---|
+| 5c.1 | Looking-up pose shows while idle | Stand still on the ground. Press and hold W. | The looking-up pose displays immediately and holds while W is held. | |
+| 5c.2 | Looking-down pose shows while idle | Stand still on the ground. Press and hold S. | The looking-down pose displays immediately and holds while S is held. | |
+| 5c.3 | Releasing either key returns cleanly to Idle | Release W (or S) after its look pose is showing. | Character returns cleanly to the normal `Idle` pose/loop — no stuck frame, no visible pop. | |
+| 5c.4 | Both W and S held simultaneously shows neither look pose | Stand still. Press and hold W, then also press and hold S (both held together). | Neither look pose displays — character stays in normal `Idle` the entire time both keys are held. This is a regression pin for the accumulation-cancel design (`+1`/`-1` netting to `0`) — the animation's **own independent** implementation of this cancel, distinct from `5b.4`'s check of the same cancel behavior on the camera side. Both must hold independently; this row is not redundant with 5b.4. | |
+| 5c.5 | Starting to walk cancels a look pose into Walk | While a look pose is showing (W or S held), press and hold A or D. | The look pose cancels immediately and the character transitions straight into `Walk` — no lingering look-pose frame. | |
+| 5c.6 | Jumping cancels a look pose into the jump sequence | While a look pose is showing, press Space. | The look pose cancels immediately and the jump sequence (anticipation → rise) plays normally — no lingering look-pose frame, even briefly. | |
+| 5c.7 | Attacking cancels a look pose | While a look pose is showing, press J. | The look pose cancels immediately and the Attack swing plays normally. | |
+| 5c.8 | Defending cancels a look pose | While a look pose is showing, press and hold K. | The look pose cancels immediately and the Defend raise/hold plays normally. | |
+| 5c.9 | `Hurt()` cancels a look pose | While a look pose is showing, trigger `Hurt()` via Section 0's method. | The look pose cancels immediately and the Hurt pose plays — no lingering look-pose frame, matching the `DefendHeld` force-clear precedent. | |
+| 5c.10 | `Die()` cancels a look pose | While a look pose is showing, trigger `Die()` via Section 0's method. | The look pose cancels immediately and the Die sequence plays — no lingering look-pose frame. | |
+| 5c.11 | Quick W→S (or S→W) swap passes through Idle imperceptibly | While holding W (look-up showing), quickly release W and press S (or the reverse). | This is a known, accepted design simplification (Decision 8): there is no direct `LookUp`↔`LookDown` transition, so the swap passes through one frame of `Idle` before the new look pose appears. Confirm this reads as **imperceptible** — a clean, instant-feeling swap, not a visible flicker/glitch. Escalate as a bug if it reads as a visible glitch rather than an instant swap. | |
+| 5c.12 | Camera pan (Section 5b) is not newly restricted by this feature | Walk, jump, attack, and defend in turn, pressing and holding W (or S) during each. | The camera still pans (or is still blocked per Section 5b's existing gating) exactly as it did before this plan — W/S continues to pan the camera during `Walk`/`Jump`/etc. exactly as before, even though the look-pose animation itself no longer displays in those non-idle states. This confirms the animation's narrower idle+grounded gate is fully independent of, and does not leak into, the camera's own separate gating. | |
 
 ---
 

@@ -322,6 +322,7 @@ Confirmed project facts (do not assume beyond what's verified here):
   | Defend/Block | 3 | Raise → hold pin-head forward → recover |
   | Hurt | 1 | Snap reaction, no easing — sells the hit as sudden |
   | Die | 3 | Body drop → mask separates/shatters (matches Section 2.5 stage 4) |
+  | Look Up/Down | 1 each | Cosmetic idle-only overlay, shown while W/S held and the character is idle+grounded; cancels immediately on any other action |
 
   General easing rule: anticipation and follow-through on every "heavy" verb
   (attack, land, death); hurt is the one deliberate exception (sharp, no
