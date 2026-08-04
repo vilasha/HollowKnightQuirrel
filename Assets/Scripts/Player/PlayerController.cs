@@ -52,6 +52,19 @@ public class PlayerController : MonoBehaviour
     public bool IsAttacking => _isAttacking;
 
     /// <summary>
+    /// True from the moment an attack starts airborne (TryAttack sets this to !isGrounded at attack-
+    /// start, Docs/Plans/005_attack-while-jumping.md Task 1.1) until the attack ends via the same
+    /// three clear-sites as _isAttacking (OnAttackAnimationComplete/Hurt/Die). Pure attack-start
+    /// metadata for tests/future systems (e.g. a future air-attack-specific SFX/damage rule) - NOT
+    /// read by IsFullyCommitted, which instead keys its attack-freeze contribution off live
+    /// IsGrounded (see IsFullyCommitted's doc comment for why a latched flag would be wrong there).
+    /// </summary>
+    private bool _isAirAttack;
+
+    /// <summary>Read-only view of _isAirAttack, for tests and future systems.</summary>
+    public bool IsAirAttack => _isAirAttack;
+
+    /// <summary>
     /// Code-tracked mirror of the Animator's DefendHeld bool parameter (plan section 1.7) - true while
     /// K is held and none of IsDead/hit-stun/!IsGrounded gate it off. Named to match the Animator
     /// parameter exactly, same convention as <see cref="IsGrounded"/>/<see cref="IsDead"/> above.
@@ -88,8 +101,21 @@ public class PlayerController : MonoBehaviour
     /// freeze while it's true; UpdateAnimatorParameters' IsWalking computation reads this same state
     /// too - replaces Task 3.3's IsCommittedToAttackOrDefendPlaceholder field entirely (not merely
     /// renamed - this is real, derived logic now).
+    ///
+    /// Attack's contribution is keyed off LIVE <see cref="IsGrounded"/> (`_isAttacking &amp;&amp;
+    /// IsGrounded`), not the latched <see cref="_isAirAttack"/> flag set once at attack-start
+    /// (Docs/Plans/005_attack-while-jumping.md Task 1.2). Before that plan, _isAttacking always
+    /// implied grounded (TryAttack required isGrounded), so this distinction was moot. Once
+    /// air-attacks exist, a player can land mid-swing well before the Attack clip's exit time; a
+    /// latched-flag formula (e.g. `_isAttacking &amp;&amp; !_isAirAttack`) would leave _isAirAttack
+    /// stuck true and the freeze never re-engaging, so the character stays un-frozen and walkable on
+    /// the ground for the rest of the swing - a case that literally could not happen before this
+    /// feature. Keying off live IsGrounded instead makes the freeze re-engage automatically the
+    /// instant the character lands, with the same one-FixedUpdate-frame lag already accepted
+    /// elsewhere in this file (ApplyHorizontalMovement runs before IsGrounded is refreshed each
+    /// FixedUpdate). Do not "simplify" this back to a latched form.
     /// </summary>
-    public bool IsFullyCommitted => _isAttacking || DefendHeld || _isHurtStunned;
+    public bool IsFullyCommitted => (_isAttacking && IsGrounded) || DefendHeld || _isHurtStunned;
 
     // ---------------------------------------------------------------------
     // Jump physics, grounded-check, interrupt safety (Task 3.3, plan sections
@@ -432,21 +458,24 @@ public class PlayerController : MonoBehaviour
     /// internally) for the same EditMode-testability reason as TryJump. Returns whether the attack
     /// actually started.
     ///
-    /// Gated off (no-op) while DefendHeld, IsDead, !isGrounded, _isAttacking (no-stack guard, plan
+    /// Gated off (no-op) while DefendHeld, IsDead, _isAttacking (no-stack guard, plan
     /// section 1.8 - defense-in-depth alongside the Animator's own Can Transition To Self = false),
     /// or hurt-stunned (plan section 1.9's Hurt() spec: attack input is ignored during the stun
-    /// window).
+    /// window). As of Docs/Plans/005_attack-while-jumping.md Task 1.1, airborne attacks are allowed
+    /// (the former !isGrounded gate is removed) - _isAirAttack is set from the isGrounded parameter
+    /// at the moment the attack starts, as pure metadata (see its own doc comment).
     /// </summary>
     public bool TryAttack(bool isGrounded)
     {
         EnsureCachedComponents();
 
-        if (IsDead || DefendHeld || !isGrounded || _isAttacking || _isHurtStunned)
+        if (IsDead || DefendHeld || _isAttacking || _isHurtStunned)
         {
             return false;
         }
 
         _isAttacking = true;
+        _isAirAttack = !isGrounded;
 
         if (_animator != null)
         {
@@ -469,6 +498,7 @@ public class PlayerController : MonoBehaviour
     {
         EnsureCachedComponents();
         _isAttacking = false;
+        _isAirAttack = false;
     }
 
     /// <summary>
@@ -541,6 +571,7 @@ public class PlayerController : MonoBehaviour
         _jumpInProgress = false;
         _jumpImpulseCancelled = true;
         _isAttacking = false;
+        _isAirAttack = false;
         DefendHeld = false;
         if (_animator != null)
         {
@@ -575,6 +606,7 @@ public class PlayerController : MonoBehaviour
         _jumpInProgress = false;
         _jumpImpulseCancelled = true;
         _isAttacking = false;
+        _isAirAttack = false;
         DefendHeld = false;
         _isHurtStunned = false; // Die outranks Hurt - no point leaving a stun window "active" under a permanent death lock.
 
