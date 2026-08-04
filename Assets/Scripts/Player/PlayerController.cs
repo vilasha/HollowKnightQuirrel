@@ -162,6 +162,20 @@ public class PlayerController : MonoBehaviour
     private float _jumpTimeRemaining;
 
     /// <summary>
+    /// Dedicated, animator-independent cancellation flag for the delayed jump impulse (plan
+    /// Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md, Task 1.1). Replaces
+    /// <see cref="IsJumpAnticipationStillActive"/> as the gate inside
+    /// <see cref="ApplyJumpImpulseIfValid"/>: that Animator-state check could read false (and
+    /// silently cancel the impulse, permanently stranding <see cref="_jumpInProgress"/> true) merely
+    /// because a Space press coincided with an in-flight Idle&lt;-&gt;Walk transition whose
+    /// InterruptionSource:None + 0.1s duration can outlast the 0.08s anticipation timer - not only on
+    /// the genuine Hurt/Die interrupt case it was meant to detect. Reset to false the moment a new
+    /// jump starts (TryJump, alongside _jumpInProgress = true); set true ONLY by Hurt()/Die() at the
+    /// same point they already reset _jumpInProgress/_isAttacking - the one genuine interrupt case.
+    /// </summary>
+    private bool _jumpImpulseCancelled;
+
+    /// <summary>
     /// Real grounded-check result (OverlapCircle against the Ground layer, computed in FixedUpdate -
     /// plan section 1.5: "grounded-check belongs alongside the physics step it gates"). Replaces Task
     /// 3.2's IsGroundedPlaceholder. Defaults true to match the character's grounded spawn state (plan
@@ -192,10 +206,17 @@ public class PlayerController : MonoBehaviour
     private static readonly int IsDeadHash = Animator.StringToHash("IsDead");
 
     /// <summary>
-    /// The Animator state name the delayed jump-impulse cancellation check looks for (plan sections
-    /// 1.4/1.9). Exact string match required - a real coupling risk the plan flags for Task 4.1's
-    /// Animator-state contract test. Do not rename without updating both the Animator (Task 3.5/3.6)
-    /// and that contract test.
+    /// The Animator state name <see cref="IsJumpAnticipationStillActive"/> looks for. Exact string
+    /// match required - a real coupling risk the plan flags for Task 4.1's Animator-state contract
+    /// test. Do not rename without updating both the Animator (Task 3.5/3.6) and that contract test.
+    ///
+    /// INTENTIONALLY RETAINED, UNUSED FOR GATING (Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md
+    /// Task 1.1): as of Task 1.1, <see cref="ApplyJumpImpulseIfValid"/> no longer calls
+    /// <see cref="IsJumpAnticipationStillActive"/> (the only consumer of this constant), so this
+    /// constant no longer participates in jump-impulse gating. Do NOT delete it as "dead code":
+    /// `Assets/Scripts/Player/Tests/EditMode/AnimatorContractTests.cs` (~lines 106-133) reflects on
+    /// this exact field to assert the "JumpAnticipation" state exists in the Animator Controller -
+    /// deleting it would silently break that contract test.
     /// </summary>
     private const string JumpAnticipationStateName = "JumpAnticipation";
 
@@ -364,6 +385,7 @@ public class PlayerController : MonoBehaviour
         }
 
         _jumpInProgress = true;
+        _jumpImpulseCancelled = false;
         _jumpImpulseTimerActive = true;
         _jumpTimeRemaining = _jumpAnticipationDuration;
 
@@ -517,6 +539,7 @@ public class PlayerController : MonoBehaviour
         // 1.9) - harmless when a flag is already false, and avoids needing to track which state was
         // actually interrupted.
         _jumpInProgress = false;
+        _jumpImpulseCancelled = true;
         _isAttacking = false;
         DefendHeld = false;
         if (_animator != null)
@@ -550,6 +573,7 @@ public class PlayerController : MonoBehaviour
         EnsureCachedComponents();
 
         _jumpInProgress = false;
+        _jumpImpulseCancelled = true;
         _isAttacking = false;
         DefendHeld = false;
         _isHurtStunned = false; // Die outranks Hurt - no point leaving a stun window "active" under a permanent death lock.
@@ -569,10 +593,16 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Applies the vertical jump impulse, unless cancelled (plan sections 1.4/1.9). Cancellation
-    /// covers both the Die case (IsDead) and a Hurt-interrupt case (Animator moved off
-    /// JumpAnticipation via an Any-State transition) with a single check by design - do not
-    /// special-case Die vs Hurt separately.
+    /// Applies the vertical jump impulse, unless cancelled (plan Docs/Plans/002...md sections 1.4/1.9,
+    /// revised by Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md Task 1.1). Cancellation covers
+    /// both the Die case and the Hurt-interrupt case with a single flag
+    /// (<see cref="_jumpImpulseCancelled"/>) by design - do not special-case Die vs Hurt separately.
+    ///
+    /// As of Task 1.1, this no longer calls <see cref="IsJumpAnticipationStillActive"/> - that
+    /// Animator-state inspection could false-positive-cancel a legitimate jump whenever a Space press
+    /// coincided with an in-flight Idle&lt;-&gt;Walk transition, permanently stranding
+    /// _jumpInProgress true and silently disabling all future jumps. See _jumpImpulseCancelled's doc
+    /// comment for the full mechanism.
     ///
     /// CRITICAL: writes ONLY the .y component and preserves whatever .x currently is - the mirror of
     /// ApplyHorizontalMovement's .y-preservation requirement, applied to the other axis. Horizontal
@@ -585,7 +615,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        if (!IsJumpAnticipationStillActive())
+        if (_jumpImpulseCancelled)
         {
             return;
         }
@@ -598,6 +628,14 @@ public class PlayerController : MonoBehaviour
     /// True if the Animator's current state (layer 0) is still JumpAnticipation, OR if there's no
     /// Animator/AnimatorController wired yet to check (e.g. EditMode tests, or before Task 3.8
     /// attaches one) - in that case nothing could have interrupted the jump, so don't block it.
+    ///
+    /// INTENTIONALLY RETAINED, UNUSED FOR GATING (Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md
+    /// Task 1.1): no longer called from <see cref="ApplyJumpImpulseIfValid"/> as of Task 1.1 - it was
+    /// found to false-positive-cancel legitimate jumps on an Idle&lt;-&gt;Walk transition race (see
+    /// _jumpImpulseCancelled's doc comment). Do NOT delete this method or clean it up as "dead code":
+    /// `Assets/Scripts/Player/Tests/EditMode/AnimatorContractTests.cs` (~lines 106-133) reflects on
+    /// <see cref="JumpAnticipationStateName"/> to assert the "JumpAnticipation" state exists in the
+    /// Animator Controller, and removing either would silently break that contract test.
     /// </summary>
     private bool IsJumpAnticipationStillActive()
     {
