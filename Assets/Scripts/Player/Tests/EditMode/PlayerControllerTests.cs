@@ -424,6 +424,113 @@ public class PlayerControllerTests
         Assert.IsTrue(secondAttackStarted,
             "A NEW attack must succeed after recovering from the interrupt - proves _isAttacking didn't get stuck permanently true.");
     }
+
+    // -------------------------------------------------------------------
+    // Task 3.1a (Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md): coverage for the
+    // Task 1.1 _jumpImpulseCancelled mechanism. As that plan's Task 1.1 write-up documents, no
+    // existing test above actually proved Hurt() cancels the delayed jump impulse itself -
+    // Jump_InterruptedByHurtMidAnticipation_ThenRecovers_NewJumpSucceeds only asserts on
+    // IsJumpInProgress/a second jump starting, never on velocity.y. These three tests close that
+    // gap. (Task 3.1a's Branch B/C repro test is intentionally NOT included here - it depends on
+    // Task 2.2, which has not happened yet: Phase 2 is still blocked on the Task 0.2 human-playtest
+    // diagnostic session. Add it once Task 2.2 lands.)
+    // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Test-only helper that reads the private <c>_jumpImpulseCancelled</c> field via reflection -
+    /// same rationale/convention as <see cref="ForceSetDefendHeld"/> above: the field has no public
+    /// accessor (by design, per plan 004 Task 1.1's doc comment), and adding a test-only public
+    /// getter is out of scope for this QA-only task.
+    /// </summary>
+    private static bool GetJumpImpulseCancelled(PlayerController controller)
+    {
+        FieldInfo field = typeof(PlayerController).GetField(
+            "_jumpImpulseCancelled",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        return (bool)field.GetValue(controller);
+    }
+
+    /// <summary>
+    /// The specific missing guarantee plan 004's Task 1.1 write-up calls out: no prior test actually
+    /// asserted on velocity.y after a Hurt()-interrupted jump. This proves Hurt() cancellation is
+    /// real and deterministic via the dedicated <c>_jumpImpulseCancelled</c> flag, independent of any
+    /// Animator/JumpAnticipation state inspection (no Animator is attached in this fixture at all).
+    /// </summary>
+    [Test]
+    public void Jump_CancelledByHurt_NoVerticalImpulseApplied()
+    {
+        CreatePlayer();
+
+        bool jumpStarted = _playerController.TryJump(true);
+        Assert.IsTrue(jumpStarted);
+
+        // A distinct, non-default pre-existing .y so the assertion below proves "unchanged from
+        // whatever gravity had already produced", not a coincidental match against Rigidbody2D's
+        // zero default (same discipline as AdvanceJumpTimer_CancelsImpulse_WhenDeadBeforeTimerElapses).
+        const float preExistingVerticalVelocity = -1f;
+        _rigidbody.velocity = new Vector2(0f, preExistingVerticalVelocity);
+
+        _playerController.Hurt(); // cancels this jump's impulse via _jumpImpulseCancelled (plan 004 Task 1.1)
+
+        _playerController.AdvanceJumpTimer(0.08f); // elapse exactly the anticipation window
+
+        Assert.AreEqual(preExistingVerticalVelocity, _rigidbody.velocity.y, 0.0001f,
+            "Hurt() must cancel the delayed jump impulse - velocity.y must not reflect the 15 u/s jump " +
+            "impulse once the anticipation window elapses (plan 004 Task 1.1's _jumpImpulseCancelled).");
+    }
+
+    /// <summary>
+    /// Proves the new mechanism directly: an uninterrupted jump leaves <c>_jumpImpulseCancelled</c>
+    /// false and its vertical impulse applies deterministically - independent of the old
+    /// Animator-null fallback in <see cref="PlayerController"/>'s now-unused
+    /// IsJumpAnticipationStillActive (this fixture's CreatePlayer() never attaches an Animator either
+    /// way, but this test asserts on the actual flag rather than relying on that fallback coincidence).
+    /// </summary>
+    [Test]
+    public void Jump_NoInterrupt_ImpulseCancelledFlagStaysFalse_AndImpulseApplies()
+    {
+        CreatePlayer();
+
+        bool jumpStarted = _playerController.TryJump(true);
+        Assert.IsTrue(jumpStarted);
+
+        _playerController.AdvanceJumpTimer(0.08f); // elapse exactly the anticipation window
+
+        Assert.IsFalse(GetJumpImpulseCancelled(_playerController),
+            "_jumpImpulseCancelled must remain false for an uninterrupted jump (plan 004 Task 1.1).");
+        Assert.AreEqual(15f, _rigidbody.velocity.y, 0.0001f,
+            "The vertical impulse must apply deterministically once _jumpImpulseCancelled is confirmed " +
+            "false, with no Animator attached at all in this fixture.");
+    }
+
+    /// <summary>
+    /// Proves <c>_jumpImpulseCancelled</c> does not leak true from a cancelled jump into a later,
+    /// independent one - it must be reset to false by the second <see cref="PlayerController.TryJump"/>
+    /// call, not left stuck true from the first Hurt() interrupt (plan 004 Task 1.1's explicit
+    /// "reset to false at the moment a new jump starts" requirement).
+    /// </summary>
+    [Test]
+    public void Jump_ImpulseCancelledFlag_DoesNotLeakIntoLaterJump()
+    {
+        CreatePlayer();
+
+        bool firstJumpStarted = _playerController.TryJump(true);
+        Assert.IsTrue(firstJumpStarted);
+
+        _playerController.Hurt(); // cancels the first jump's impulse and resets _jumpInProgress
+
+        _playerController.AdvanceHurtStunTimer(0.31f); // wait out the stun window so a new jump is possible
+
+        bool secondJumpStarted = _playerController.TryJump(true);
+        Assert.IsTrue(secondJumpStarted,
+            "A new jump must be able to start after recovering from the Hurt() interrupt.");
+
+        _playerController.AdvanceJumpTimer(0.08f); // elapse exactly the anticipation window for the SECOND jump
+
+        Assert.AreEqual(15f, _rigidbody.velocity.y, 0.0001f,
+            "The second jump's impulse must apply - proves _jumpImpulseCancelled was reset to false by " +
+            "the second TryJump() call rather than staying stuck true from the first cancellation.");
+    }
 }
 
 /// <summary>

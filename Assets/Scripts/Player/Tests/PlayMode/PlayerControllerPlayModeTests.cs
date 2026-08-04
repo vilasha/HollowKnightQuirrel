@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Reflection;
 using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -48,6 +50,10 @@ public class PlayerControllerPlayModeTests
     private const int PlayerLayer = 8; // Task 3.1, matches TagManager.asset / SampleScene.unity
     private const int GroundLayer = 9;
 
+    // Task 3.1b (Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md) - same asset path constant
+    // convention as AnimatorContractTests.cs's ControllerAssetPath.
+    private const string QuirrelControllerAssetPath = "Assets/Animations/Quirrel.controller";
+
     private GameObject _groundObject;
     private GameObject _playerObject;
     private PlayerController _controller;
@@ -58,6 +64,13 @@ public class PlayerControllerPlayModeTests
 
     private static readonly PropertyInfo DefendHeldProperty =
         typeof(PlayerController).GetProperty(nameof(PlayerController.DefendHeld), BindingFlags.Public | BindingFlags.Instance);
+
+    // Task 3.1b (Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md) - reflects PlayerController's
+    // own private static IsWalkingHash field rather than hand-typing "IsWalking" again, so this test
+    // can never silently drift from the exact parameter PlayerController.cs itself writes (same
+    // contract AnimatorContractTests.cs asserts independently).
+    private static readonly FieldInfo IsWalkingHashField =
+        typeof(PlayerController).GetField("IsWalkingHash", BindingFlags.NonPublic | BindingFlags.Static);
 
     private static void SetHorizontalInput(PlayerController controller, float value)
     {
@@ -421,5 +434,137 @@ public class PlayerControllerPlayModeTests
         Assert.AreEqual(startX, _playerObject.transform.position.x, 0.01f,
             "X position must not change at all while DefendHeld is true, even under real physics integration (plan section 1.8).");
         Assert.IsTrue(_controller.IsGrounded, "The character must remain grounded while committed to Defend.");
+    }
+
+    // ---------------------------------------------------------------------
+    // 8. Real-Animator Idle<->Walk crossfade race (Task 3.1b,
+    // Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md)
+    //
+    // This is the ONE test in the whole suite that attaches the real
+    // Assets/Animations/Quirrel.controller instead of leaving the rig's Animator absent (see the
+    // class doc comment's RIG CHOICE section). Every other test above hits
+    // IsJumpAnticipationStillActive()'s now-unused "_animator == null -> return true" fallback
+    // unconditionally, which is exactly why Bug 2 (the jump-stall bug Task 1.1 fixed) shipped past a
+    // fully-green suite in the first place. Confirmed directly against the committed controller asset:
+    // the Idle<->Walk transitions are InterruptionSource: None with a 0.1s m_TransitionDuration, which
+    // can outlast the 0.08s jump-anticipation timer - the exact race this test exercises.
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Adds a real Animator + the project's actual Quirrel.controller to the existing test rig, on top
+    /// of (not replacing) [UnitySetUp]'s deliberately-animator-less construction (see the class doc
+    /// comment's RIG CHOICE note) - this keeps every other test in the file unaffected. PlayerController
+    /// caches its Animator reference lazily via EnsureCachedComponents(), called at the top of every
+    /// testable public method and every Update()/FixedUpdate(), so adding the component here (after
+    /// Awake() already ran with _animator == null) is picked up automatically on the very next frame -
+    /// no re-initialization of _controller is required.
+    /// </summary>
+    private Animator AttachRealAnimator()
+    {
+        Animator animator = _playerObject.AddComponent<Animator>();
+        AnimatorController controllerAsset = AssetDatabase.LoadAssetAtPath<AnimatorController>(QuirrelControllerAssetPath);
+        Assert.IsNotNull(controllerAsset,
+            $"Could not load an AnimatorController at '{QuirrelControllerAssetPath}' - has it moved or been renamed?");
+        animator.runtimeAnimatorController = controllerAsset;
+        return animator;
+    }
+
+    [UnityTest]
+    public IEnumerator Jump_PressedDuringLiveIdleWalkCrossfade_WithRealAnimator_StillAppliesVerticalImpulse()
+    {
+        Animator animator = AttachRealAnimator();
+
+        // Let EnsureCachedComponents() (called every Update()) pick up the just-added Animator and let
+        // it settle into its default (Idle) state, and past any zero-duration Entry->Idle transition,
+        // before driving input - a handful of frames of margin, not load-bearing timing.
+        for (int i = 0; i < 5; i++)
+        {
+            yield return null;
+        }
+
+        // TECHNIQUE NOTE (found while debugging this test, Task 3.1b): this file's usual
+        // _horizontalInput reflection override (see the class doc comment) CANNOT be used to drive the
+        // real Animator's IsWalking parameter, unlike every other use of that technique in this file.
+        // PlayerController.Update() unconditionally resets _horizontalInput to 0 and recomputes it from
+        // LIVE Input.GetKey at its own top, then reads that SAME freshly-recomputed value again later
+        // in the SAME Update() call inside UpdateAnimatorParameters() - there is no point this
+        // coroutine can reach between those two steps, because Unity resumes a `yield return null`
+        // coroutine only once per frame, AFTER that frame's Update() has already fully run (the class
+        // doc comment's own load-bearing ordering fact). So a reflection override applied at the only
+        // point this coroutine can run is always visible to the NEXT frame's FixedUpdate() (which is
+        // how every other test in this file uses it, for pure physics integration) but is ALWAYS
+        // overwritten by that next frame's own Update() before UpdateAnimatorParameters() ever reads it
+        // - IsWalking can never observe a nonzero value this way, confirmed by an actual Unity MCP run
+        // showing 0/40 oscillation cycles ever caught a transition.
+        //
+        // Instead, this test drives the real Animator's IsWalking bool parameter directly via
+        // Animator.SetBool, exploiting Unity's real per-frame execution order one step further than the
+        // class doc comment already documents: FixedUpdate -> Update -> yield-null coroutine resume ->
+        // Animation update -> LateUpdate. The coroutine resume point falls AFTER
+        // PlayerController.Update()'s own (always-false, per the above) IsWalking write for that frame,
+        // but BEFORE Mecanim's Animation-update step evaluates transitions for that same frame - so
+        // setting the parameter here reliably wins as the last write Mecanim sees, producing a genuine
+        // transition in the real AnimatorController. This does not weaken the test: what Task 1.1's fix
+        // protects against is a live Idle<->Walk transition existing in the real Animator at the moment
+        // TryJump/AdvanceJumpTimer resolves the impulse, regardless of what put that transition in
+        // flight - Task 1.1's _jumpImpulseCancelled mechanism is entirely agnostic of how IsWalking got
+        // toggled.
+        //
+        // Poll Animator.IsInTransition(0) every frame rather than assuming any fixed frame count
+        // reliably lands inside the 0.1s crossfade window; try across several oscillation cycles
+        // (bounded, not indefinite) to keep this reliable. Each half-cycle is held comfortably longer
+        // than the transition's 0.1s (~6 frames @60fps) so every transition actually gets to start and
+        // be observed before the parameter flips again.
+        const int maxOscillationCycles = 30;
+        const int framesPerHalfCycle = 10;
+
+        int isWalkingHash = (int)IsWalkingHashField.GetValue(null);
+        bool transitionCaught = false;
+        bool jumpStarted = false;
+
+        for (int cycle = 0; cycle < maxOscillationCycles && !transitionCaught; cycle++)
+        {
+            bool walking = cycle % 2 == 0;
+            for (int frame = 0; frame < framesPerHalfCycle && !transitionCaught; frame++)
+            {
+                yield return null;
+                animator.SetBool(isWalkingHash, walking); // forced after this frame's Update(), before Mecanim's Animation-update step - see the technique note above
+
+                if (animator.IsInTransition(0))
+                {
+                    // Caught a live transition in flight - fire the edge-triggered jump action right
+                    // now, matching this file's existing input-simulation convention for jump/attack
+                    // (direct method call = faithful simulation of the Space key-down edge).
+                    transitionCaught = true;
+                    jumpStarted = _controller.TryJump(_controller.IsGrounded);
+                }
+            }
+        }
+
+        Assert.IsTrue(transitionCaught,
+            $"Never observed a live Animator.IsInTransition(0) during the Idle<->Walk oscillation within " +
+            $"{maxOscillationCycles} cycles - the test's own setup failed to produce a crossfade at all, " +
+            "independent of the race Task 1.1 fixed.");
+        Assert.IsTrue(jumpStarted,
+            "TryJump should succeed while grounded and not already mid-jump, even with a live Idle<->Walk " +
+            "transition in flight - being mid-crossfade must not itself block starting a jump.");
+
+        // Continue advancing real per-frame yields until the 0.08s jump-anticipation window has
+        // elapsed (real per-frame Time.deltaTime accumulation, not Time.fixedDeltaTime steps - the
+        // Animator's m_UpdateMode: 0 (Normal) ties it to Time.deltaTime, matching the class doc
+        // comment's established timing model for this file).
+        float elapsedSinceJumpAttempt = 0f;
+        const float anticipationWindowWithMargin = 0.08f + 0.05f;
+        while (elapsedSinceJumpAttempt < anticipationWindowWithMargin)
+        {
+            yield return null;
+            elapsedSinceJumpAttempt += Time.deltaTime;
+        }
+
+        Assert.Greater(_rigidbody.velocity.y, 10f,
+            "The vertical jump impulse (~15 u/s, _jumpVerticalVelocity) should have applied despite Space " +
+            "having been pressed while a live Idle<->Walk transition was in flight - this is the exact race " +
+            "Docs/Plans/004_walk-anim-freeze-and-jump-stall-fix.md Task 1.1's _jumpImpulseCancelled flag " +
+            "fixes, previously masked because no test in this suite attached a real Animator.");
     }
 }
