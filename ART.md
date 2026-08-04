@@ -294,6 +294,15 @@ Confirmed project facts (do not assume beyond what's verified here):
   migrates (Pixels Per Unit especially — changing it after any collider/level
   geometry exists shifts every object in the game; treat it as effectively
   frozen).
+
+  **Deviation for per-frame character sprites:** once `Quirrel_Sprites.png` is
+  cut into individual per-frame sprites, those frames use **Pivot: Bottom
+  (0.5, 0)** instead of the sheet-level Center pivot above. Per-frame bounding
+  boxes are tight crops with varying heights frame-to-frame; a Center pivot
+  would make the character bob vertically between frames, whereas a Bottom
+  pivot keeps the feet glued to a constant ground line. All other baseline
+  settings (PPU, filter mode, sRGB, Alpha Is Transparency) still apply to
+  those frames unchanged.
 - **Animation approach:** classic sprite-sheet flip-book frame animation (not
   Unity 2D Animation bone/skinning) — confirmed by the frame-labeled layout in
   `Assets/Sprites/Quirrel_Sprites.png` (`IDLE`, `WALK`, `JUMP`, `ATTACK`,
@@ -307,12 +316,12 @@ Confirmed project facts (do not assume beyond what's verified here):
   | Verb | Frames | Notes |
   |---|---|---|
   | Idle | 4 | Slow, breathing-like loop |
-  | Walk | 8 | Full step cycle |
-  | Jump | 4 | Anticipation crouch → apex |
-  | Attack (swing) | 6 | Wind-up → extended point → recovery; pin should read as a distinct long line at peak extension |
-  | Defend/Block | 4 | Raise → hold pin-head forward → recover |
-  | Hurt | 2 | Snap reaction, no easing — sells the hit as sudden |
-  | Die | 6 | Body drop → mask separates/shatters (matches Section 2.5 stage 4) |
+  | Walk | 6 | Full step cycle |
+  | Jump | 3 | Anticipation crouch → apex → descend |
+  | Attack (swing) | 4 | Wind-up → extended point → recovery; pin should read as a distinct long line at peak extension |
+  | Defend/Block | 3 | Raise → hold pin-head forward → recover |
+  | Hurt | 1 | Snap reaction, no easing — sells the hit as sudden |
+  | Die | 3 | Body drop → mask separates/shatters (matches Section 2.5 stage 4) |
 
   General easing rule: anticipation and follow-through on every "heavy" verb
   (attack, land, death); hurt is the one deliberate exception (sharp, no
