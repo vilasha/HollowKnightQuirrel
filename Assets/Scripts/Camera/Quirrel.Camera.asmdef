@@ -1,7 +1,9 @@
 {
     "name": "Quirrel.Camera",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "Quirrel.Player"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
