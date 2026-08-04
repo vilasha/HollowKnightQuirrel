@@ -140,6 +140,30 @@ for that split; automated coverage lives in `PlayerControllerTests.cs`,
 
 ---
 
+## 5b. Look up/down camera pan (Docs/Plans/006_look-up-down-camera-pan.md)
+
+**Context:** holding `W` pans the camera up by a plausible half-screen amount (driven by
+`Camera.orthographicSize`); holding `S` pans it down; releasing either returns smoothly to the
+normal position. Pan is gated on `PlayerController.IsDead || PlayerController.IsFullyCommitted`
+— **not** `IsFullyCommitted` alone, since `Die()` clears every flag `IsFullyCommitted` reads, so
+the post-`Die()` row below is the one case where `IsFullyCommitted` itself is `false` and only
+`IsDead` is doing the blocking. This section is the manual/feel gate for that gating; automated
+coverage lives in `CameraFollowTests.cs`.
+
+| # | Check | Steps | Expected | Pass/Fail |
+|---|---|---|---|---|
+| 5b.1 | W pans up smoothly | Stand still on the ground. Press and hold W. | Camera slides smoothly upward, converging to roughly half a screen height above normal — no snap, no overshoot/jitter. | |
+| 5b.2 | Release W returns to normal | Release W after 5b.1 has converged. | Camera slides smoothly back down to its normal position over a similar time constant — no snap. | |
+| 5b.3 | S pans down, release returns to normal | Press and hold S; once converged, release it. | Camera slides smoothly downward by roughly half a screen height, then smoothly returns to normal on release — mirrors 5b.1/5b.2. | |
+| 5b.4 | Both W and S held simultaneously produce no pan | Press and hold W, then also press and hold S (both held together), and watch the camera. | Camera stays at its normal position the entire time both keys are held — no pan in either direction. This is a regression pin for the accumulation-cancel design (`+1`/`-1` netting to `0`), the same shape as A/D. | |
+| 5b.5 | Pan fully blocked during an Attack | Press J to start an attack. While the swing is playing, press and hold W (or S). | Camera does not pan at all during the swing — stays at its normal position regardless of held W/S. | |
+| 5b.6 | Pan fully blocked during a Defend hold | Hold K to enter Defend. While `DefendHeld` is true, press and hold W (or S). | Camera does not pan at all while Defend is held — stays at its normal position. | |
+| 5b.7 | Pan fully blocked during a Hurt stun window | Trigger `Hurt()` via Section 0's method. During the 0.3s hit-stun window, press and hold W (or S). | Camera does not pan at all during the stun window — stays at its normal position. | |
+| 5b.8 | Pan fully blocked after `Die()` specifically | Trigger `Die()` via Section 0's method. After Die settles into its final held pose (`IsFullyCommitted` is `false` at this point — Die clears every flag it reads — only `IsDead` is doing the blocking here), press and hold W (or S). | Camera does not pan at all — stays at its normal position. This is a **separate, distinct check from 5b.5–5b.7**: it specifically confirms the `IsDead` branch of the gate is independently load-bearing, not merely redundant with the `IsFullyCommitted` branch. | |
+| 5b.9 | Mid-pan full-commit/death glides back, doesn't snap | Press and hold W (or S) until the camera has visibly panned partway (don't wait for full convergence). While still mid-pan, trigger one of: an Attack (J), a Defend hold (K), `Hurt()`, or `Die()` (via Section 0). | Camera glides smoothly back to its normal position over the same time constant as 5b.2/5b.3 — no instant snap-cut, regardless of which full-commit/death trigger interrupted the pan. | |
+
+---
+
 ## 6. Sign-off
 
 - [ ] All items in Sections 1–5 checked PASS
