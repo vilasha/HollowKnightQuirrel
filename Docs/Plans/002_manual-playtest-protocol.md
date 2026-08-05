@@ -191,6 +191,117 @@ regression check that the camera pan (Section 5b) was not accidentally narrowed 
 
 ---
 
+## 5d. Bench sit mechanic (Docs/Plans/008_bench-sit-mechanic.md)
+
+**Context:** standing anywhere along the bench's horizontal footprint (any X-axis overlap with
+the bench's trigger collider) and pressing `W` while idle and grounded sits Quirrel
+down; the game starts with him already seated (the bench is colocated with the spawn point).
+**Correction (2026-08-05, per the user, overriding plan 008 Decision 3):** the original plan
+008 requirement that sitting needs "no centering" was wrong — sitting should center Quirrel on
+the bench. See Bug 3 below and row 5d.2, which is superseded by this correction and needs a
+follow-up implementation.
+While seated, Attack (`J`)/Jump (`Space`)/Defend (`K`) are fully blocked at the code level;
+walking (`A`/`D`) is the one stated exit and stands him up immediately. Sitting is deliberately
+**not** folded into `IsFullyCommitted` (Decision 2) — `CameraFollow`'s own W/S pan gate (Section
+5b) is untouched by design and should still pan normally while seated; this is a named,
+non-obvious judgment call, not an oversight. Automated coverage lives in
+`PlayerControllerTests.cs`, `AnimatorContractTests.cs`, and `BenchTests.cs`. This section is the
+manual/feel gate for the mechanic itself, the Decision 10 spawn-timing edge case, and the
+Decision 2 camera-pan choice.
+
+| # | Check | Steps | Expected | Pass/Fail |
+|---|---|---|---|---|
+| 5d.1 | Game starts already seated (Decision 10) | Enter Play Mode fresh — do not press any key before observing. Look at Quirrel at spawn. | Quirrel is already in the `Sitting` pose the instant Play Mode starts — no `W` press needed. **Named edge case (Decision 10):** if he spawns standing instead, this is the accepted frame-0 timing risk, not automatically a bug — press `W` once and confirm that single press then correctly sits him; note which behavior was actually observed. | PASS (code/state) — verified live via Unity MCP: `IsSitting`/`IsNearBench` both true and the Animator is in `Sitting` the instant Play Mode starts, no frame-0 edge case observed. **Visually degraded by Bug 3 below** — see Bugs Found. |
+| 5d.2 | ~~Sitting from anywhere along the bench's footprint, not centered~~ **SUPERSEDED — see Bug 3** | Stand at the near edge of the bench's footprint (not centered under it) and press `W`. Repeat standing at the far edge of the footprint. | ~~Both positions sit Quirrel down on `W` — no need to be centered on the bench.~~ **Corrected requirement (per the user, overriding plan 008 Decision 3): sitting should center Quirrel on the bench, not leave him wherever he was standing.** This row's original expectation is wrong and needs to be rewritten once the centering fix lands. | FAIL against the corrected requirement — `TrySit` does succeed from both edges (mechanically works), but Quirrel is left off-center rather than snapped to the bench, which is now the wrong behavior. See Bug 3. |
+| 5d.3 | `W` away from the bench still shows the ordinary look-up pose (regression vs. plan 007) | Walk well clear of the bench's footprint, stand idle, press and hold `W`. | The ordinary look-up pose (Section 5c) displays exactly as it did before this feature — `IsNearBench` is false here, so there is no interaction with sitting. | PASS — verified live at `x=5` (well clear of the bench): `IsNearBench=false`, `LookingUp=true`, `IsSitting=false`. |
+| 5d.4 | `A`/`D` while seated stands Quirrel up and he walks immediately | While seated, press and hold `A` (repeat separately with `D`). | Quirrel stands and walks in that direction on the same press — no lingering seated frame, no pause between standing and walking starting. | PASS — verified live: `IsSitting` clears and the Animator transitions `Sitting → Walk` in the same frame's input, movement is not frozen (`velocity.x` reaches 4.5 immediately). |
+| 5d.5 | Attack (`J`) does nothing while seated | While seated, press `J`. | No attack swing plays; character remains seated; no console errors. | PASS — verified live: `TryAttack` returns `false` and `IsAttacking` stays `false` while seated; no console errors. |
+| 5d.6 | Jump (`Space`) does nothing while seated | While seated, press `Space`. | No jump anticipation or launch plays; character remains seated and grounded. | PASS — verified live: `TryJump` returns `false`, `IsJumpInProgress` stays `false` while seated. |
+| 5d.7 | Defend (`K`) does nothing while seated | While seated, press and hold `K`. | No defend raise/hold pose plays; character remains seated for the entire hold. | PASS — verified live: `DefendHeld`'s computation reads `false` while seated even with K's contribution folded in as held. |
+| 5d.8 | `Hurt()` interrupts sitting immediately | While seated, trigger `Hurt()` via Section 0's method. | The seated pose cuts immediately to the Hurt pose — no lingering seated frame, matching the existing `DefendHeld`/`LookingUp` force-clear precedent (Decision 6). | PASS — verified live: `IsSitting` clears immediately, Animator moves to `Hurt` via the Any-State transition, `IsSitting` Animator bool is `false`. |
+| 5d.9 | `Die()` interrupts sitting immediately | While seated, trigger `Die()` via Section 0's method. | The seated pose cuts immediately into the Die sequence — no lingering seated frame. | PASS — verified live: `IsSitting` clears immediately, Animator moves to `Die` via the Any-State transition. |
+| 5d.10 | Walking across the bench's footprint produces no snagging/blocking | Approach from one side and hold `A`/`D` continuously through and past the bench's full horizontal footprint without stopping. | Character walks straight through the bench's footprint at a constant, unbroken pace — no snag, no bump, no velocity change (regression check confirming Task 5.2's collider stayed a trigger, never a solid collider). | PASS — verified live via `Rigidbody2D.GetContacts`: solid-contact count stayed constant (2, both attributable to the Ground collider) whether the player was inside or outside the bench's AABB — the bench's trigger collider contributes zero physical contacts. |
+| 5d.11 | Camera `W`/`S` pan (Section 5b) still works normally while seated (Decision 2) | While seated, press and hold `W` (repeat separately with `S`). | Camera pans smoothly exactly as Section 5b describes — **not** blocked by sitting. Confirms this deliberate, non-obvious Decision 2 choice reads correctly in practice, not as a bug. | PASS — confirmed by the user via real keyboard input in Play Mode: camera pans up/down normally with W/S while Quirrel is seated. |
+
+**Tester:** live Unity MCP session (rows 5d.1–5d.10) + Maria via real keyboard input (row 5d.11), 2026-08-05.
+
+**Bugs found during this pass** (see "Bugs Found" section below — not fixed here, routed back through the pipeline per CLAUDE.md):
+1. `Bench_01.png` has visible white background leftovers on the backrest that the knockout pass should have removed.
+2. The `Bench` GameObject is positioned too high — it reads as floating above the ground rather than resting on it.
+3. Because sitting doesn't move Quirrel's transform (by design — Decision 3/"no centering required") but `Quirrel_Sitting_01.png` has partial bench geometry baked into the sprite itself (an accepted trade-off from plan 008 Task 1.2), the two don't visually line up: the real `Bench_01` prop and the partial bench baked into Quirrel's own sprite render as two disconnected bench fragments instead of one coherent bench.
+
+---
+
+## Bugs Found — 5d bench sit mechanic (2026-08-05)
+
+### Bug: Bench sprite has residual white background around the backrest
+
+**Severity:** Minor
+**System:** Art
+**Regression:** no (new feature — plan 008)
+**Environment:** Unity Editor, Windows
+
+#### Steps to Reproduce
+1. Enter Play Mode on `Assets/Scenes/SampleScene.unity`.
+2. Look at the `Bench` GameObject's rendered sprite (`Bench_01.png`), particularly the backrest.
+
+#### Expected / Actual
+The knockout pass should remove all near-white background pixels, leaving only the bench's opaque ink lines, matching every other sprite in the roster. / Visible white leftovers remain on the back of the bench sprite.
+
+#### Evidence
+Reported directly by the user (Maria) while observing Play Mode live.
+
+#### Suspected cause
+Plan 008 Task 1.2 used a manually-tuned `whiteThreshold` (195 for `Bench.png`) chosen by histogram inspection to clear a photo's soft gray backdrop gradient/cast shadow — per that task's own report, this was empirically chosen and confirmed "stable across 190–220," but evidently some near-white pixels around the backrest fall outside that cleared range. Re-tuning the threshold (or a per-region threshold) is likely needed.
+
+---
+
+### Bug: Bench GameObject is positioned too high, reads as floating
+
+**Severity:** Minor
+**System:** Art / Gameplay (scene setup)
+**Regression:** no (new feature — plan 008)
+**Environment:** Unity Editor, Windows
+
+#### Steps to Reproduce
+1. Enter Play Mode on `Assets/Scenes/SampleScene.unity`.
+2. Look at the `Bench` GameObject relative to the ground plane.
+
+#### Expected / Actual
+The bench should rest on the ground surface, with its near (left) leg reading closer to the viewer/lower and its far (right) leg reading further away, and roughly the midpoint of the bench at surface level (per the user's description of the intended perspective). / The bench currently sits noticeably above the ground line, reading as floating.
+
+#### Evidence
+Reported directly by the user (Maria) while observing Play Mode live. Current `Bench` GameObject Transform: position `(0, 0, 0)`, `SpriteRenderer` bottom-pivot sprite (`Bench_01.png`, pivot `(0.5, 0)`) — placed directly on the shared ground line (world y=0) per plan 008 Task 5.2, same convention as `Player`.
+
+#### Suspected cause
+The sprite's own bottom-pivot convention places its lowest opaque pixel row at local y=0, but per the user's description the bench's *legs* (not necessarily the sprite's absolute lowest pixel, if the reference photo's perspective/shadow extends below the legs) should read as touching the ground — worth re-deriving the correct Y offset (or re-cropping the sprite's bottom edge) once Bug 1's contamination is also resolved, since the two may interact (a wider near-white margin at the bottom could be inflating the sprite's apparent height/pivot placement).
+
+---
+
+### Bug: Quirrel doesn't visually sit "on" the bench — two disconnected bench fragments
+
+**Severity:** Major
+**System:** Art / Gameplay (design)
+**Regression:** no (new feature — plan 008)
+**Environment:** Unity Editor, Windows
+
+#### Steps to Reproduce
+1. Enter Play Mode, stand anywhere along the bench's footprint, press `W`.
+
+#### Expected / Actual
+Quirrel should read as sitting on the one visible bench, centered on it. / Quirrel sits wherever he was standing (plan 008 Decision 3's "sit anywhere along the footprint, no centering required"), but `Quirrel_Sitting_01.png` has partial bench material baked into the sprite itself (an accepted trade-off named in plan 008 Task 1.2, Zones 1/2). The result is two visually disconnected bench fragments: the real `Bench_01` prop, and the partial bench behind Quirrel's own sprite — they don't line up into one coherent image.
+
+#### Evidence
+Reported directly by the user (Maria) while observing Play Mode live; also independently reproduced during this session's own live verification (see the orchestrator's note above about an unrelated Animator-state test artifact that looked similar but was confirmed to be a different, non-shippable cause — this bug is the real, reachable one).
+
+#### Suspected cause / Correction to the design requirement
+Plan 008 Decision 3's "no centering required" was **the wrong requirement** — confirmed directly by the user (Maria), overriding that decision. The correct, fully-specified fix (per the user, 2026-08-05):
+
+- On a successful `TrySit`: Quirrel's transform snaps to the bench's sit anchor (so the composite `Quirrel_Sitting_01` art — which already has bench geometry baked in from the source photo — lines up exactly where the real bench is); Quirrel's own idle/walk `SpriteRenderer` visual is replaced by the sitting pose (already true via the Animator); and the **standalone `Bench_01` sprite is hidden** for the duration of the sit (its `SpriteRenderer` disabled, or equivalent) — there is deliberately no attempt to re-crop `Quirrel_Sitting_01.png` to remove its baked-in bench material and composite it against the separately-rendered `Bench_01`; the composite sprite IS the sitting visual, in full, bench included.
+- On standing up (`StandUpIfWalking`, or `Hurt()`/`Die()` interrupting): Quirrel's normal idle/walk sprite reappears (already true), and the **`Bench_01` sprite is shown again** (now visibly empty, since Quirrel has moved off it).
+
+This is a real code change (not just an art fix): `TrySit` needs a way to know which specific `Bench` it succeeded against (currently `PlayerController.IsNearBench` is a plain bool with no reference to a specific `Bench` instance — plan 008 Decision 7 already named single-bench-only as an accepted limitation, so this fix should resolve that reference cleanly, e.g. `IsNearBench` becoming a `Bench` reference or an added `Bench NearBench` property) so it can (a) read that bench's sit-anchor position/`Transform` to snap Quirrel to, and (b) toggle that specific bench's `SpriteRenderer.enabled` on sit-start/stand-up. The "sit from either edge of the footprint, not centered" acceptance criteria from plan 008 Task 1.2/6.1 (and this doc's own 5d.2 row) need to be revised to assert the snap-and-hide behavior instead. Route through the pipeline as a plan 008 follow-up (Draft → Review → Implement), not a silent patch.
+
 ## 6. Sign-off
 
 - [ ] All items in Sections 1–5 checked PASS
