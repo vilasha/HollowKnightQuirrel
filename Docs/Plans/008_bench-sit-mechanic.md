@@ -1,6 +1,6 @@
 # Implementation Plan — Bench Sit Mechanic
 
-**Status:** 🟡 DRAFT (round 2, revised per round-1 reviewer feedback)
+**Status:** ✅ APPROVED (round 2, accepted by implementation-plan-reviewer)
 **Author:** implementation-plan-architect
 **Date:** 2026-08-05
 **Feature:** A single, static `Bench` prop the player can sit on. Standing in
