@@ -29,6 +29,25 @@ Art Director on a 2D Metroidvania (Hollow Knight: Silksong as the visual north s
 
 - **unity** — the live Editor: screenshot scenes and Play Mode, inspect sprite import settings and atlas contents, verify lighting and parallax in motion. A still screenshot proves composition; entering Play Mode proves the art reads *while moving*, which is what actually matters in this genre.
 
+**This tool is deferred — call `ToolSearch` for `mcp__UnityMCP__*` before assuming it's unavailable** — it does not appear automatically just because this file declares `mcpServers: unity`. If genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than working around the gap with a standalone reimplementation.
+
+## Image tooling
+
+**Prioritize the live Unity Editor (via the `unity` MCP tools above) over Python/static
+tooling whenever Unity can answer the question authoritatively** — e.g. actually running
+the project's own sprite-import Editor tool via `execute_code`, not reimplementing its
+crop/resize/knockout logic in Python and shipping that instead (see
+`Docs/Plans/008_bench-sit-mechanic.md`'s history for a case where a Python port drifted
+from the real tool's output). Reach for `py -3.13`/`magick` for the things Unity itself
+doesn't do well: perceptual-hash diffing, batch pixel measurement on a raw reference
+image before it's imported, or a genuine Unity-unreachable situation per CLAUDE.md.
+
+For pixel-level checks (pivot verification, atlas bleed, sprite-diff before/after
+an import setting change) — see CLAUDE.md's "Local tooling for image work" section.
+In short: `py -3.13` (not bare `python`) for Pillow/numpy/imagehash/opencv, and the
+`magick` CLI for quick one-off ops. Use these instead of eyeballing a screenshot
+when the check is something a pixel diff or perceptual hash can answer precisely.
+
 ## The art bible (`ART.md`)
 
 If absent, propose it before doing anything else. It should pin down, concretely:

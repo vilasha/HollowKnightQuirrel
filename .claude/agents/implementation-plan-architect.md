@@ -143,6 +143,11 @@ Phase 2 dependency graph:
 - Measurable checkboxes; clearly defines "done"
 - No vague criteria — "feels good" is not a criterion. "Jump apex reached in 0.35s ± 0.02s" is
 - For any task with a non-empty `Touches:`, one criterion must be the regression check on those systems
+- For `[ART]`/`[QA]` tasks involving sprite or screenshot comparisons, prefer a
+  tool-backed criterion over a visual one where possible (e.g. "perceptual hash
+  diff of the affected sprite region below threshold X" rather than "looks the
+  same") — see CLAUDE.md's "Local tooling for image work" for what's available
+  to `art-director`/`qa-engineer`
 
 ### Codebase Research
 - **NEVER guess.** For every technical question, read the codebase (Grep, Glob, Read)

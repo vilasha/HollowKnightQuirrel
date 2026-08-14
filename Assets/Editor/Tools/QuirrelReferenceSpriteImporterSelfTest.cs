@@ -171,6 +171,13 @@ namespace Quirrel.EditorTools
                 $"{ExpectedFeatherMidpointAlpha} pixels ({wrongOrderPristineFeatherCount}) than the correct order's " +
                 $"({correctOrderPristineFeatherCount})");
 
+            // (c) Region-based pre-crop overload (Docs/Plans/008_bench-sit-mechanic.md, Task 1.1):
+            // BuildOutputPixelsFromRegion must (i) be byte-identical to manually calling CropPixels
+            // then BuildOutputPixels in sequence, and (ii) genuinely exclude out-of-region content
+            // (a disconnected "contaminant" shape) BEFORE the existing bbox-autodetect step ever
+            // runs - not merely happen to produce a similar-looking result.
+            allPassed &= RunRegionOverloadChecks();
+
             if (allPassed)
             {
                 Debug.Log("[QuirrelReferenceSpriteImporterSelfTest] PASS - all synthetic-texture checks succeeded: " +
@@ -179,7 +186,8 @@ namespace Quirrel.EditorTools
                           $"midpoint ({correctOrderPristineFeatherCount}/{correctOrderPartialAlphaCount} px at " +
                           $"{ExpectedFeatherMidpointAlpha}) versus knockout-before-resize's diluted result " +
                           $"({wrongOrderPristineFeatherCount}/{wrongOrderPartialAlphaCount} px still at " +
-                          $"{ExpectedFeatherMidpointAlpha}).");
+                          $"{ExpectedFeatherMidpointAlpha}), and the region-based pre-crop overload is byte-identical " +
+                          "to the manual crop+build sequence while excluding an out-of-region contaminant shape.");
             }
             else
             {
@@ -187,6 +195,134 @@ namespace Quirrel.EditorTools
             }
 
             return allPassed;
+        }
+
+        // Widened canvas for the region-overload check below: same diamond island as
+        // BuildSyntheticTexture (centered at (RegionCenterX,RegionCenterY), same radius), plus a
+        // second, disconnected dark "contaminant" square placed well to the right, entirely
+        // outside both the island's own bounding box AND the region rectangle the test below
+        // supplies to BuildOutputPixelsFromRegion. A wider canvas (rather than reusing CanvasSize)
+        // is required so the contaminant has room to sit clear of the region without overlapping
+        // the island.
+        private const int RegionTestCanvasWidth = 200;
+        private const int RegionTestCanvasHeight = CanvasSize; // 108, same as BuildSyntheticTexture
+        private const int RegionContaminantXMin = 150;
+        private const int RegionContaminantXMax = 170;
+        private const int RegionContaminantYMin = 40;
+        private const int RegionContaminantYMax = 60;
+
+        // The region supplied to BuildOutputPixelsFromRegion: comfortably contains the diamond
+        // island (bbox [17,17]-[89,89], per CenterX/CenterY/Radius above) but stops well short of
+        // the contaminant (which starts at x=150) - so a correct region-based pre-crop can never
+        // see the contaminant's pixels at all.
+        private const int RegionXMin = 0;
+        private const int RegionYMin = 0;
+        private const int RegionXMax = 99;
+        private const int RegionYMax = RegionTestCanvasHeight - 1;
+
+        /// <summary>Builds the widened, contaminated synthetic test texture described above.</summary>
+        private static Color32[] BuildContaminatedSyntheticTexture(out int width, out int height)
+        {
+            width = RegionTestCanvasWidth;
+            height = RegionTestCanvasHeight;
+            var pixels = new Color32[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int manhattanDistance = System.Math.Abs(x - CenterX) + System.Math.Abs(y - CenterY);
+                    bool isIsland = manhattanDistance <= Radius;
+                    bool isContaminant = x >= RegionContaminantXMin && x <= RegionContaminantXMax &&
+                                          y >= RegionContaminantYMin && y <= RegionContaminantYMax;
+
+                    pixels[y * width + x] = (isIsland || isContaminant) ? Dark : White;
+                }
+            }
+
+            return pixels;
+        }
+
+        /// <summary>
+        /// Verifies both Task 1.1 acceptance criteria for
+        /// <see cref="QuirrelReferenceSpriteImporter.BuildOutputPixelsFromRegion"/>: byte-identical
+        /// output to a manual CropPixels-then-BuildOutputPixels sequence, and genuine exclusion of
+        /// an out-of-region contaminant shape.
+        /// </summary>
+        private static bool RunRegionOverloadChecks()
+        {
+            bool allPassed = true;
+
+            Color32[] sourcePixels = BuildContaminatedSyntheticTexture(out int width, out int height);
+            const int targetContentHeight = 40;
+
+            // Region overload under test.
+            Color32[] regionResult = QuirrelReferenceSpriteImporter.BuildOutputPixelsFromRegion(
+                sourcePixels, width, height,
+                RegionXMin, RegionYMin, RegionXMax, RegionYMax,
+                targetContentHeight, QuirrelSpriteKnockout.DefaultWhiteThreshold,
+                out int regionOutputWidth, out int regionOutputHeight);
+
+            // Manual equivalent: CropPixels once with the same region, then BuildOutputPixels on
+            // that sub-buffer - exactly what BuildOutputPixelsFromRegion is documented to do
+            // internally. Both existing methods are used completely unmodified here.
+            Color32[] manualCropped = QuirrelReferenceSpriteImporter.CropPixels(
+                sourcePixels, width, height, RegionXMin, RegionYMin, RegionXMax, RegionYMax,
+                out int manualCroppedWidth, out int manualCroppedHeight);
+            Color32[] manualResult = QuirrelReferenceSpriteImporter.BuildOutputPixels(
+                manualCropped, manualCroppedWidth, manualCroppedHeight,
+                targetContentHeight, QuirrelSpriteKnockout.DefaultWhiteThreshold,
+                out int manualOutputWidth, out int manualOutputHeight);
+
+            allPassed &= Check(regionOutputWidth == manualOutputWidth,
+                $"Region overload output width ({regionOutputWidth}) should match the manual crop+build " +
+                $"sequence's width ({manualOutputWidth})");
+            allPassed &= Check(regionOutputHeight == manualOutputHeight,
+                $"Region overload output height ({regionOutputHeight}) should match the manual crop+build " +
+                $"sequence's height ({manualOutputHeight})");
+            allPassed &= Check(ArraysAreByteIdentical(regionResult, manualResult),
+                "BuildOutputPixelsFromRegion's output should be byte-identical to manually calling " +
+                "CropPixels then BuildOutputPixels in sequence");
+
+            // The island (within the region) is a symmetric diamond, so a contamination-free
+            // result must be square. If the region pre-crop failed to exclude the contaminant (or
+            // the overload wrongly ran the FULL, un-cropped source through the bbox-autodetect
+            // step), the detected bbox would additionally span out to the contaminant at x=170,
+            // producing a much wider-than-tall, non-square output - this is what a genuine
+            // regression here would look like, not merely a hypothetical.
+            allPassed &= Check(regionOutputWidth == regionOutputHeight,
+                $"Region overload output should be square (source content within the region is a symmetric " +
+                $"diamond) - width {regionOutputWidth}, height {regionOutputHeight}. A mismatch would indicate " +
+                "the out-of-region contaminant leaked into the result.");
+
+            // Direct, unambiguous confirmation the contaminant is structurally impossible to reach:
+            // the region's own xMax (99) sits below the contaminant's own xMin (150), so the
+            // contaminant can never appear in the cropped sub-buffer CropPixels produces, regardless
+            // of any bbox-autodetect behavior downstream.
+            allPassed &= Check(RegionXMax < RegionContaminantXMin,
+                "Test setup invariant: the supplied region must end before the contaminant begins");
+
+            if (allPassed)
+            {
+                Debug.Log("[QuirrelReferenceSpriteImporterSelfTest] Region overload checks PASS - " +
+                          $"{regionOutputWidth}x{regionOutputHeight} output byte-identical to the manual " +
+                          "crop+build sequence, with the out-of-region contaminant structurally excluded.");
+            }
+
+            return allPassed;
+        }
+
+        private static bool ArraysAreByteIdentical(Color32[] a, Color32[] b)
+        {
+            if (a == null || b == null) return a == b;
+            if (a.Length != b.Length) return false;
+
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (!a[i].Equals(b[i])) return false;
+            }
+
+            return true;
         }
 
         private static int Index(int x, int y, int width) => y * width + x;

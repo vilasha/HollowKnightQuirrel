@@ -29,6 +29,18 @@ Note: Unity tests require test assembly definitions. If the project has none, se
 
 - **unity** — the live Editor: run EditMode and PlayMode tests and read results, enter Play Mode to walk a flow, inspect component values mid-run to confirm a system's actual state, read the console for errors and exceptions, screenshot for visual evidence. This is how you playtest without a human at the keyboard.
 
+**This tool is deferred — call `ToolSearch` for `mcp__UnityMCP__*` (e.g. `select:mcp__UnityMCP__execute_code,mcp__UnityMCP__run_tests,mcp__UnityMCP__get_test_job,mcp__UnityMCP__read_console,mcp__UnityMCP__refresh_unity,mcp__UnityMCP__execute_menu_item`) before assuming it's unavailable** — it does not appear automatically just because this file declares `mcpServers: unity`. A manual playtest pass or a "run the tests" task is not complete without actually driving the live Editor this way — do not substitute a static code read for a real Play Mode/test-runner result and report it as verified. If genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than reporting an unverified checklist as done.
+
+## Image tooling
+
+**Prioritize the live Unity Editor over Python/static tooling** whenever Unity can answer
+the question authoritatively (running the actual test suite, entering Play Mode, reading
+real console output) — see CLAUDE.md's "Prioritize Unity's own tools" section. For turning
+a screenshot into a verifiable regression check (not just "looks the same to me") — see
+CLAUDE.md's "Local tooling for image work" section. `py -3.13` (not bare `python`) has
+Pillow/numpy/imagehash/opencv for pixel diffs and perceptual-hash comparisons against a
+saved reference screenshot; `magick` is available for quick CLI-side image ops.
+
 ## Test Pyramid (Unity shape)
 
 ```

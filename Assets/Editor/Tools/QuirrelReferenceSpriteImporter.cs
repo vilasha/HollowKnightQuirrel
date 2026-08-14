@@ -42,6 +42,37 @@ namespace Quirrel.EditorTools
     /// </summary>
     public static class QuirrelReferenceSpriteImporter
     {
+        [MenuItem("Tools/Quirrel/Crop Region, Resize And Knockout Reference Sprite...")]
+        private static void CropRegionResizeAndKnockoutMenuCommand()
+        {
+            string sourcePath = EditorUtility.OpenFilePanel(
+                "Choose source reference PNG (raw, opaque, on a near-white background)",
+                Application.dataPath,
+                "png");
+
+            if (string.IsNullOrEmpty(sourcePath))
+                return; // user cancelled
+
+            string outputFolder = EditorUtility.OpenFolderPanel(
+                "Choose output folder for the cropped/resized/knocked-out sprite (do NOT choose a folder under Assets/ on the first pass)",
+                Application.dataPath + "/..",
+                "");
+
+            if (string.IsNullOrEmpty(outputFolder))
+                return; // user cancelled
+
+            if (!RegionAndTargetHeightPromptWindow.TryPromptForRegionAndTargetHeight(
+                    out int regionXMin, out int regionYMin, out int regionXMax, out int regionYMax,
+                    out int targetContentHeight))
+                return; // user cancelled
+
+            string outputPath = Path.Combine(outputFolder, Path.GetFileName(sourcePath));
+            CropRegionResizeAndKnockout(
+                sourcePath, outputPath, regionXMin, regionYMin, regionXMax, regionYMax, targetContentHeight);
+            Debug.Log($"[QuirrelReferenceSpriteImporter] Wrote '{outputPath}' " +
+                      $"(region [{regionXMin},{regionYMin}]-[{regionXMax},{regionYMax}], target content height {targetContentHeight}px).");
+        }
+
         [MenuItem("Tools/Quirrel/Crop, Resize And Knockout Reference Sprite...")]
         private static void CropResizeAndKnockoutMenuCommand()
         {
@@ -128,6 +159,96 @@ namespace Quirrel.EditorTools
         }
 
         /// <summary>
+        /// Small blocking prompt window used only to collect a manual pre-crop region (4 ints)
+        /// plus the target content height from the region-based menu command above (Docs/Plans/
+        /// 008_bench-sit-mechanic.md, Task 1.1). Reuses <see cref="TargetHeightPromptWindow"/>'s
+        /// exact UX pattern (a handful of IntFields plus OK/Cancel, Editor-only, blocking modal)
+        /// with four additional IntFields for the region rectangle - deliberately a separate
+        /// class rather than a modified <see cref="TargetHeightPromptWindow"/>, so that window's
+        /// existing behavior (used by the existing, unmodified single-image menu command) stays
+        /// byte-for-byte untouched.
+        /// </summary>
+        private sealed class RegionAndTargetHeightPromptWindow : EditorWindow
+        {
+            private const int DefaultTargetHeight = 131; // matches the existing roster's established baseline
+
+            private int _regionXMin;
+            private int _regionYMin;
+            private int _regionXMax = 100;
+            private int _regionYMax = 100;
+            private int _targetHeight = DefaultTargetHeight;
+            private bool _confirmed;
+
+            public static bool TryPromptForRegionAndTargetHeight(
+                out int regionXMin, out int regionYMin, out int regionXMax, out int regionYMax,
+                out int targetHeight)
+            {
+                var window = CreateInstance<RegionAndTargetHeightPromptWindow>();
+                window.titleContent = new GUIContent("Region + Target Content Height");
+                window.minSize = new Vector2(380, 220);
+                window.maxSize = window.minSize;
+                window.ShowModal(); // blocks until Close() is called below
+
+                regionXMin = window._regionXMin;
+                regionYMin = window._regionYMin;
+                regionXMax = window._regionXMax;
+                regionYMax = window._regionYMax;
+                targetHeight = window._targetHeight;
+                bool confirmed = window._confirmed;
+                DestroyImmediate(window);
+                return confirmed;
+            }
+
+            private void OnGUI()
+            {
+                EditorGUILayout.LabelField(
+                    "Manual pre-crop region (inclusive pixel coordinates in the SOURCE image, " +
+                    "before any crop/resize - isolate the subject from unrelated content):",
+                    EditorStyles.wordWrappedLabel);
+                _regionXMin = EditorGUILayout.IntField("Region X Min", _regionXMin);
+                _regionYMin = EditorGUILayout.IntField("Region Y Min", _regionYMin);
+                _regionXMax = EditorGUILayout.IntField("Region X Max", _regionXMax);
+                _regionYMax = EditorGUILayout.IntField("Region Y Max", _regionYMax);
+
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField(
+                    "Target content height (px), e.g. 131 to match the existing roster baseline:",
+                    EditorStyles.wordWrappedLabel);
+                _targetHeight = EditorGUILayout.IntField("Target Height", _targetHeight);
+
+                EditorGUILayout.Space();
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("OK"))
+                    {
+                        bool regionValid = _regionXMin >= 0 && _regionYMin >= 0 &&
+                                            _regionXMax >= _regionXMin && _regionYMax >= _regionYMin;
+
+                        if (_targetHeight > 0 && regionValid)
+                        {
+                            _confirmed = true;
+                            Close();
+                        }
+                        else
+                        {
+                            EditorUtility.DisplayDialog(
+                                "Invalid input",
+                                "Region must have non-negative Min values and Max >= Min on both axes, " +
+                                "and target height must be a positive integer.",
+                                "OK");
+                        }
+                    }
+
+                    if (GUILayout.Button("Cancel"))
+                    {
+                        _confirmed = false;
+                        Close();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// File-based entry point: loads <paramref name="sourceAbsolutePath"/> as raw bytes
         /// (bypassing the Unity import pipeline entirely, identical discipline to
         /// <see cref="QuirrelSpriteSlicer.SliceAndKnockout"/>), runs the full crop/resize/knockout
@@ -193,6 +314,89 @@ namespace Quirrel.EditorTools
         }
 
         /// <summary>
+        /// File-based entry point mirroring <see cref="CropResizeAndKnockout"/> exactly, plus a
+        /// caller-supplied manual pre-crop region (Docs/Plans/008_bench-sit-mechanic.md, Task
+        /// 1.1): loads <paramref name="sourceAbsolutePath"/> as raw bytes, runs the region-based
+        /// pipeline (see <see cref="BuildOutputPixelsFromRegion"/>), and writes the result as an
+        /// RGBA PNG to <paramref name="outputAbsolutePath"/>. Deliberately duplicates
+        /// <see cref="CropResizeAndKnockout"/>'s own file load/write plumbing verbatim rather than
+        /// refactoring it into a shared private helper, so that method's existing body is left
+        /// completely untouched (regression discipline, Task 1.1's acceptance criteria).
+        /// </summary>
+        /// <param name="sourceAbsolutePath">Absolute (or project-relative) path to the source PNG.</param>
+        /// <param name="outputAbsolutePath">Absolute output file path. Parent directory is created
+        /// if it does not already exist. Not required to be under Assets/.</param>
+        /// <param name="regionXMin">Inclusive left edge, in source-image pixel coordinates, of the
+        /// manual pre-crop region.</param>
+        /// <param name="regionYMin">Inclusive top edge, in source-image pixel coordinates, of the
+        /// manual pre-crop region.</param>
+        /// <param name="regionXMax">Inclusive right edge, in source-image pixel coordinates, of the
+        /// manual pre-crop region.</param>
+        /// <param name="regionYMax">Inclusive bottom edge, in source-image pixel coordinates, of the
+        /// manual pre-crop region.</param>
+        /// <param name="targetContentHeight">Target height, in pixels, for the cropped content
+        /// after resize.</param>
+        /// <param name="whiteThreshold">Minimum R, G and B value (inclusive) for a pixel to be
+        /// considered near-white background, both for bbox detection and for the knockout pass.</param>
+        public static void CropRegionResizeAndKnockout(
+            string sourceAbsolutePath,
+            string outputAbsolutePath,
+            int regionXMin,
+            int regionYMin,
+            int regionXMax,
+            int regionYMax,
+            int targetContentHeight,
+            byte whiteThreshold = QuirrelSpriteKnockout.DefaultWhiteThreshold)
+        {
+            if (string.IsNullOrEmpty(sourceAbsolutePath)) throw new ArgumentException("sourceAbsolutePath must not be empty", nameof(sourceAbsolutePath));
+            if (string.IsNullOrEmpty(outputAbsolutePath)) throw new ArgumentException("outputAbsolutePath must not be empty", nameof(outputAbsolutePath));
+
+            string resolvedSourcePath = ResolveToAbsolutePath(sourceAbsolutePath);
+            if (!File.Exists(resolvedSourcePath))
+                throw new FileNotFoundException($"Source reference image not found at '{resolvedSourcePath}'.");
+
+            byte[] sourceBytes = File.ReadAllBytes(resolvedSourcePath);
+
+            // LoadImage always produces a readable, in-memory texture regardless of the source
+            // asset's own import settings - this is what lets us treat the reference PNG as
+            // strictly read-only (never touching Read/Write Enabled or any other import setting).
+            var source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            try
+            {
+                if (!source.LoadImage(sourceBytes, markNonReadable: false))
+                    throw new InvalidDataException($"Failed to decode PNG at '{resolvedSourcePath}'.");
+
+                Color32[] sourcePixels = source.GetPixels32();
+                Color32[] outputPixels = BuildOutputPixelsFromRegion(
+                    sourcePixels, source.width, source.height,
+                    regionXMin, regionYMin, regionXMax, regionYMax,
+                    targetContentHeight, whiteThreshold,
+                    out int outputWidth, out int outputHeight);
+
+                var output = new Texture2D(outputWidth, outputHeight, TextureFormat.RGBA32, false);
+                try
+                {
+                    output.SetPixels32(outputPixels);
+                    output.Apply(false, false);
+
+                    byte[] png = output.EncodeToPNG();
+                    string outputDir = Path.GetDirectoryName(outputAbsolutePath);
+                    if (!string.IsNullOrEmpty(outputDir))
+                        Directory.CreateDirectory(outputDir);
+                    File.WriteAllBytes(outputAbsolutePath, png);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(output);
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+
+        /// <summary>
         /// Pure-logic pipeline entry point (no Texture2D/File dependency): detects the content
         /// bbox, crops, resizes the still-opaque crop to <paramref name="targetContentHeight"/>,
         /// then runs knockout+feather on the resized buffer - in that order (Decision 2). Exposed
@@ -232,6 +436,51 @@ namespace Quirrel.EditorTools
             QuirrelSpriteKnockout.KnockoutAndFeather(resized, outputWidth, outputHeight, whiteThreshold);
 
             return resized;
+        }
+
+        /// <summary>
+        /// Pure-logic pipeline entry point with an explicit, caller-supplied manual pre-crop
+        /// region (Docs/Plans/008_bench-sit-mechanic.md, Task 1.1) - for source images where the
+        /// subject shares a canvas with other content the bbox-autodetect step alone cannot
+        /// separate (e.g. Quirrel composited on a bench in the same photo). Calls the existing,
+        /// unmodified <see cref="CropPixels"/> exactly once with <paramref name="regionXMin"/>/
+        /// <paramref name="regionYMin"/>/<paramref name="regionXMax"/>/<paramref name="regionYMax"/>,
+        /// then delegates entirely to the existing, unmodified <see cref="BuildOutputPixels"/> on
+        /// that sub-buffer - which itself still auto-tightens the bbox, resizes, and knocks out.
+        /// No new cropping/bbox/resize/knockout algorithm is introduced here; this is glue only.
+        /// </summary>
+        /// <param name="regionXMin">Inclusive left edge, in <paramref name="sourcePixels"/>
+        /// coordinates, of the manual pre-crop region.</param>
+        /// <param name="regionYMin">Inclusive top edge, in <paramref name="sourcePixels"/>
+        /// coordinates, of the manual pre-crop region.</param>
+        /// <param name="regionXMax">Inclusive right edge, in <paramref name="sourcePixels"/>
+        /// coordinates, of the manual pre-crop region.</param>
+        /// <param name="regionYMax">Inclusive bottom edge, in <paramref name="sourcePixels"/>
+        /// coordinates, of the manual pre-crop region.</param>
+        /// <exception cref="InvalidOperationException">The region sub-buffer has no pixel that is
+        /// not near-white (nothing to crop to) once the existing bbox-autodetect step runs on
+        /// it.</exception>
+        public static Color32[] BuildOutputPixelsFromRegion(
+            Color32[] sourcePixels,
+            int sourceWidth,
+            int sourceHeight,
+            int regionXMin,
+            int regionYMin,
+            int regionXMax,
+            int regionYMax,
+            int targetContentHeight,
+            byte whiteThreshold,
+            out int outputWidth,
+            out int outputHeight)
+        {
+            Color32[] regionPixels = CropPixels(
+                sourcePixels, sourceWidth, sourceHeight,
+                regionXMin, regionYMin, regionXMax, regionYMax,
+                out int regionWidth, out int regionHeight);
+
+            return BuildOutputPixels(
+                regionPixels, regionWidth, regionHeight, targetContentHeight, whiteThreshold,
+                out outputWidth, out outputHeight);
         }
 
         /// <summary>

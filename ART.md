@@ -97,6 +97,8 @@ only pins down the *color* so future upgrade art stays consistent.
 | Save bench / safe-point glow | `#F6E7C7` | Warmer and softer than Soul-blue — reads as "warmth/safety," not "resource" |
 | Neutral UI / prompt icons | `#EDEAE0` line on transparent | No color unless the prompt is actionable right now |
 | Interactable highlight (generic) | `#F4C97A` at low opacity pulse | Reuses currency-gold family — "this can be used" |
+| Mask pip, filled (HUD) | Fill `#F2EEE3` / ink `#1B1B1F` (Section 2.2 tokens, reused as-is) | The non-diegetic upper-left Mask-count HUD row (`MaskHUD`) — distinct from Section 2.5's on-character diegetic crack system |
+| Mask pip, empty (HUD) | `#1B1B1F` outline on transparent fill | Same HUD row, depleted-pip state; interior knocked out to alpha 0, ink outline stays opaque |
 
 ### 2.5 Health / damage feedback — mask crack system
 
@@ -323,6 +325,7 @@ Confirmed project facts (do not assume beyond what's verified here):
   | Hurt | 1 | Snap reaction, no easing — sells the hit as sudden |
   | Die | 3 | Body drop → mask separates/shatters (matches Section 2.5 stage 4) |
   | Look Up/Down | 1 each | Cosmetic idle-only overlay, shown while W/S held and the character is idle+grounded; cancels immediately on any other action |
+  | Sitting | 1 | Cosmetic idle-only overlay; entered via W near the bench prop while idle and grounded, or automatically at spawn if already seated; blocks Attack/Jump/Defend at the code level until the player walks away |
 
   General easing rule: anticipation and follow-through on every "heavy" verb
   (attack, land, death); hurt is the one deliberate exception (sharp, no
@@ -383,6 +386,12 @@ called out so the next asset pass corrects them rather than compounds them:
   frame art — only the base (stage 0) and shatter (stage 4, DIE frames 29–34)
   are represented in the current sheet. These need to be authored/commissioned
   before the health-feedback system in Section 2.5 can be fully implemented.
+- **HUD vs. diegetic health display (Docs/Plans/010_health-mask-system.md):**
+  the upper-left Mask-pip row (`MaskHUD`, Section 2.4) ships now as a
+  conventional floating HP-bar-style HUD. Section 4.1's diegetic on-character
+  mask-crack system (Section 2.5) remains deliberately unbuilt — the two are
+  additive, not in conflict; the HUD does not replace or contradict the
+  longer-term diegetic direction, it fills the gap until that system exists.
 
 ---
 

@@ -98,6 +98,126 @@ public class PlayerController : MonoBehaviour
     /// </summary>
     private bool _isHurtStunned;
 
+    // ---------------------------------------------------------------------
+    // Bench sit/stand mechanic (Docs/Plans/008_bench-sit-mechanic.md).
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// True from a successful <see cref="TrySit"/> until <see cref="StandUpIfWalking"/>,
+    /// <see cref="Hurt"/>, or <see cref="Die"/> clears it (Decision 6). Code-owned latch, same shape
+    /// as <see cref="_isAttacking"/>. Deliberately NOT folded into <see cref="IsFullyCommitted"/>
+    /// (Decision 2) - doing so would also gate Update()'s top-of-method A/D read, making it
+    /// impossible to ever detect "the player wants to walk away," the one stated exit condition.
+    /// Instead, <see cref="TryAttack"/>, <see cref="TryJump"/>, <see cref="DefendHeld"/>, and
+    /// <see cref="IsIdleAndGrounded"/> each get an individual, explicit exclusion.
+    /// </summary>
+    private bool _isSitting;
+
+    /// <summary>Read-only view of _isSitting, for tests and for the Bench component.</summary>
+    public bool IsSitting => _isSitting;
+
+    /// <summary>
+    /// Fired exactly once, on <see cref="TrySit"/>'s success path only, immediately after
+    /// <see cref="_isSitting"/> is set true (Docs/Plans/010_health-mask-system.md, Decision 9). First
+    /// event/delegate used anywhere in this codebase. A failed TrySit call (any existing early-return
+    /// guard) never invokes this. Consumed by <c>PlayerHealth.OnEnable</c> (<c>Rested += FullHeal</c>)
+    /// so resting on a Bench fully heals - this file has no knowledge of PlayerHealth or healing.
+    /// </summary>
+    public event System.Action Rested;
+
+    /// <summary>
+    /// Fired exactly once, at the very end of <see cref="Respawn"/>, after <see cref="IsDead"/> has
+    /// already been set back to <c>false</c> (Docs/Plans/011_death-and-respawn.md, Decision 7/load-
+    /// bearing ordering) - mirrors <see cref="Rested"/>'s exact shape. Consumed by
+    /// <c>PlayerHealth.OnEnable</c> (<c>Respawned += FullHeal</c>); firing this one line too early,
+    /// before <see cref="IsDead"/> flips false, would silently no-op the heal-on-respawn subscription
+    /// since <c>PlayerHealth.Heal</c> itself no-ops while <see cref="IsDead"/> is true.
+    /// </summary>
+    public event System.Action Respawned;
+
+    /// <summary>
+    /// True while Quirrel's collider overlaps a <see cref="Bench"/>'s trigger zone (Decision 3).
+    /// Public setter (not private-set-plus-reflection, unlike <see cref="IsGrounded"/>) because this
+    /// is legitimately, normally driven by an external component during real gameplay - the same
+    /// shape as <see cref="IsDead"/>, chosen for the identical reason (Decision 4).
+    /// </summary>
+    public bool IsNearBench { get; set; }
+
+    /// <summary>
+    /// The specific <see cref="IBenchSeat"/> Quirrel's collider currently overlaps, or null when not
+    /// near any bench (Docs/Plans/009_bench-visual-fixes.md, Decision 2). A new, independently-set
+    /// property alongside <see cref="IsNearBench"/> - NOT a replacement for it and NOT derived from
+    /// it - kept as a completely separate signal specifically so every pre-existing bool-only
+    /// <see cref="IsNearBench"/> test keeps compiling and passing with zero modification. Public
+    /// setter mirrors <see cref="IsNearBench"/>'s own shape/rationale (plan 008 Decision 4): this is
+    /// legitimately, normally driven by an external component (<c>Bench</c>'s trigger callbacks)
+    /// during real gameplay.
+    /// </summary>
+    public IBenchSeat NearBench { get; set; }
+
+    /// <summary>
+    /// The specific bench Quirrel is currently seated on, latched once at the moment
+    /// <see cref="TrySit"/> succeeds - NOT re-read from the live <see cref="NearBench"/> property
+    /// later at stand-up time (Docs/Plans/009_bench-visual-fixes.md, Decision 3). Mirrors this
+    /// file's own existing <see cref="_isAirAttack"/>-latched-at-attack-start precedent: a value
+    /// computed once at commit-time and reused later, rather than recomputed from a continuously-
+    /// updated live signal that isn't guaranteed to still reference the same bench in every future
+    /// (multi-bench) scenario. Cleared back to null by <see cref="StandUp"/>.
+    /// </summary>
+    private IBenchSeat _seatedBench;
+
+    /// <summary>
+    /// One-shot spawn-time auto-sit check, consumed exactly once by <see cref="CheckInitialSpawnSit"/>
+    /// (Decision 10).
+    /// </summary>
+    private bool _hasCheckedInitialSpawnSit;
+
+    /// <summary>
+    /// The <see cref="IBenchSeat"/> Quirrel most recently sat on, latched inside <see cref="TrySit"/>'s
+    /// success branch alongside <see cref="_seatedBench"/> (Docs/Plans/011_death-and-respawn.md,
+    /// Decision 2). Unlike <see cref="_seatedBench"/>, this is deliberately NEVER cleared by
+    /// <see cref="StandUp"/> - it must survive standing up so <see cref="Respawn"/> still knows where
+    /// to return the player after they've walked away from the bench and died elsewhere. Only
+    /// overwritten when <see cref="TrySit"/> succeeds with a non-null <c>NearBench</c>, so a bare
+    /// <c>TrySit(true)</c> call (the existing test convention, which never sets <c>NearBench</c>)
+    /// cannot clobber a previously-good respawn point back to null.
+    /// </summary>
+    private IBenchSeat _lastRestedBenchSeat;
+
+    /// <summary>Read-only view of _lastRestedBenchSeat, for <see cref="Respawn"/> and for tests.</summary>
+    public IBenchSeat LastRestedBenchSeat => _lastRestedBenchSeat;
+
+    /// <summary>
+    /// Rigidbody2D position captured exactly once, on <see cref="EnsureCachedComponents"/>'s very
+    /// first call, as a defensive respawn fallback for a hypothetical future scene where the player
+    /// spawns away from any bench (Docs/Plans/011_death-and-respawn.md, Decision 3). Guarded by
+    /// <see cref="_hasCapturedSpawnPosition"/> so it is never re-captured after the player has since
+    /// moved - see <see cref="PlayerHealth"/>'s own <c>_isValueStateInitialized</c> idiom for the
+    /// identical one-time-init pattern this mirrors.
+    /// </summary>
+    private Vector2 _spawnPosition;
+
+    /// <summary>Guards the one-time <see cref="_spawnPosition"/> capture in <see cref="EnsureCachedComponents"/>.</summary>
+    private bool _hasCapturedSpawnPosition;
+
+    // ---------------------------------------------------------------------
+    // Death and respawn (Docs/Plans/011_death-and-respawn.md).
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Seconds between <see cref="Die"/> firing and <see cref="Respawn"/> automatically running
+    /// (Decision 5 - fixed delay, not player-input-gated). Serialized so design/QA can retune without
+    /// recompiling. Default 1.5s comfortably exceeds Quirrel_Die.anim's 0.5s length.
+    /// </summary>
+    [SerializeField]
+    private float _respawnDelay = 1.5f;
+
+    /// <summary>True from the moment <see cref="Die"/> starts the respawn timer until <see cref="Respawn"/> resolves it. Same shape as <see cref="_isHurtStunned"/>'s timer flag.</summary>
+    private bool _isAwaitingRespawn;
+
+    /// <summary>Seconds remaining on the current respawn delay while <see cref="_isAwaitingRespawn"/> is true.</summary>
+    private float _respawnTimeRemaining;
+
     /// <summary>Read-only view of _isHurtStunned, for tests and for Task 3.4b's assertions.</summary>
     public bool IsHurtStunned => _isHurtStunned;
 
@@ -246,6 +366,8 @@ public class PlayerController : MonoBehaviour
     private static readonly int IsDeadHash = Animator.StringToHash("IsDead");
     private static readonly int LookingUpHash = Animator.StringToHash("LookingUp");
     private static readonly int LookingDownHash = Animator.StringToHash("LookingDown");
+    private static readonly int IsSittingHash = Animator.StringToHash("IsSitting");
+    private static readonly int RespawnTriggerHash = Animator.StringToHash("RespawnTrigger");
 
     /// <summary>
     /// The Animator state name <see cref="IsJumpAnticipationStillActive"/> looks for. Exact string
@@ -299,11 +421,24 @@ public class PlayerController : MonoBehaviour
         {
             _animator = GetComponent<Animator>(); // may legitimately stay null until Task 3.8 attaches one - all uses below null-check
         }
+
+        if (!_hasCapturedSpawnPosition)
+        {
+            // One-time defensive respawn fallback (Docs/Plans/011_death-and-respawn.md, Decision 3) -
+            // must run after _rigidbody is guaranteed cached above, and only ever once, mirroring
+            // PlayerHealth's _isValueStateInitialized idiom.
+            _hasCapturedSpawnPosition = true;
+            _spawnPosition = _rigidbody.position;
+        }
     }
 
     private void Update()
     {
         EnsureCachedComponents();
+
+        // Spawn-time auto-sit (Decision 10): one-shot, consumed exactly once, before anything else
+        // this frame reads _isSitting.
+        CheckInitialSpawnSit();
 
         // Full-commit gating (plan section 1.8, extended to hit-stun per section 1.9's "same
         // mechanism/flag family" note): while attacking, defending, or hurt-stunned, horizontal
@@ -329,6 +464,10 @@ public class PlayerController : MonoBehaviour
             }
         }
 
+        // Standing up by walking (Docs/Plans/008_bench-sit-mechanic.md, Decision 2) - same-frame
+        // clear so later-evaluated guards this same frame already see _isSitting == false.
+        StandUpIfWalking(_horizontalInput);
+
         // GetKeyDown (edge-triggered) must be read in Update, not FixedUpdate, or presses can be
         // missed between fixed steps (plan section 1.5). IsGrounded here is the value most recently
         // computed by FixedUpdate - a one-frame lag against a physics value read from Update is the
@@ -344,12 +483,21 @@ public class PlayerController : MonoBehaviour
         // DefendHeld is a continuous read of live input, not an edge (plan section 1.7) - gated off
         // while IsDead or !IsGrounded (this task's literal acceptance criteria) and also while
         // hurt-stunned (plan section 1.9's Hurt() spec: "movement/attack/defend/jump input is
-        // ignored" during the stun window).
-        DefendHeld = !IsDead && !_isHurtStunned && IsGrounded && Input.GetKey(KeyCode.K);
+        // ignored" during the stun window) or sitting (Docs/Plans/008_bench-sit-mechanic.md,
+        // Decision 2).
+        DefendHeld = !IsDead && !_isHurtStunned && !_isSitting && IsGrounded && Input.GetKey(KeyCode.K);
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
             TryJump(IsGrounded);
+        }
+
+        // TrySit is checked on the W edge BEFORE UpdateLookState's continuous W/S read (Decision 1)
+        // so a same-frame "start sitting" always wins over "start looking up" - see TrySit's own doc
+        // comment for the concrete Animator-transition-order bug this ordering prevents.
+        if (Input.GetKeyDown(KeyCode.W))
+        {
+            TrySit(IsNearBench);
         }
 
         UpdateLookState(Input.GetKey(KeyCode.W), Input.GetKey(KeyCode.S));
@@ -374,6 +522,8 @@ public class PlayerController : MonoBehaviour
 
         AdvanceJumpTimer(Time.fixedDeltaTime);
         AdvanceHurtStunTimer(Time.fixedDeltaTime);
+        // Respawn timer grouped with the other recovery-window timer above, same per-physics-step cadence.
+        AdvanceRespawnTimer(Time.fixedDeltaTime);
         ClampFallVelocity();
         UpdatePhysicsAnimatorParameters();
     }
@@ -423,7 +573,7 @@ public class PlayerController : MonoBehaviour
     {
         EnsureCachedComponents();
 
-        if (!isGrounded || _jumpInProgress || IsDead || IsFullyCommitted)
+        if (!isGrounded || _jumpInProgress || IsDead || IsFullyCommitted || _isSitting)
         {
             return false;
         }
@@ -487,7 +637,7 @@ public class PlayerController : MonoBehaviour
     {
         EnsureCachedComponents();
 
-        if (IsDead || DefendHeld || _isAttacking || _isHurtStunned)
+        if (IsDead || DefendHeld || _isAttacking || _isHurtStunned || _isSitting)
         {
             return false;
         }
@@ -593,6 +743,7 @@ public class PlayerController : MonoBehaviour
         DefendHeld = false;
         LookingUp = false;
         LookingDown = false;
+        StandUp();
         if (_animator != null)
         {
             _animator.SetBool(DefendHeldHash, false);
@@ -632,6 +783,7 @@ public class PlayerController : MonoBehaviour
         DefendHeld = false;
         LookingUp = false;
         LookingDown = false;
+        StandUp();
         _isHurtStunned = false; // Die outranks Hurt - no point leaving a stun window "active" under a permanent death lock.
 
         if (_animator != null)
@@ -648,6 +800,82 @@ public class PlayerController : MonoBehaviour
         {
             _animator.SetBool(IsDeadHash, true);
         }
+
+        // Starts the fixed respawn delay (Docs/Plans/011_death-and-respawn.md, Decision 5) - literal
+        // last line of Die(), after every pre-existing guard-flag reset/Animator call above.
+        _isAwaitingRespawn = true;
+        _respawnTimeRemaining = _respawnDelay;
+    }
+
+    /// <summary>
+    /// Ticks the respawn delay down by deltaTime; when it elapses, resolves exactly once
+    /// (<see cref="_isAwaitingRespawn"/> cleared, then <see cref="Respawn"/> called) - same shape as
+    /// <see cref="AdvanceHurtStunTimer"/>. Takes deltaTime as a parameter for the same EditMode-
+    /// testability reason as the other Advance*Timer methods. Real call site is FixedUpdate(),
+    /// passing Time.fixedDeltaTime.
+    /// </summary>
+    public void AdvanceRespawnTimer(float deltaTime)
+    {
+        EnsureCachedComponents();
+
+        if (!_isAwaitingRespawn)
+        {
+            return;
+        }
+
+        _respawnTimeRemaining -= deltaTime;
+        if (_respawnTimeRemaining > 0f)
+        {
+            return;
+        }
+
+        _isAwaitingRespawn = false; // resolved exactly once
+        Respawn();
+    }
+
+    /// <summary>
+    /// Repositions Quirrel standing at <see cref="LastRestedBenchSeat"/>'s sit anchor (or
+    /// <see cref="_spawnPosition"/> if no bench has been rested at yet - Decision 3), restores normal
+    /// input handling, and fires <see cref="Respawned"/> (Docs/Plans/011_death-and-respawn.md,
+    /// Decision 6/7). No-ops if not currently dead - safe to call directly (e.g. from a test) without
+    /// first running the timer.
+    ///
+    /// CRITICAL ordering (Decision 7): <see cref="IsDead"/> is set back to <c>false</c> BEFORE
+    /// <see cref="Respawned"/> is invoked. <c>PlayerHealth.Heal</c>'s own IsDead gate means firing
+    /// Respawned one line too early would silently no-op the heal-on-respawn subscription (Task 3.1) -
+    /// do not reorder these two.
+    /// </summary>
+    public void Respawn()
+    {
+        EnsureCachedComponents();
+
+        if (!IsDead)
+        {
+            return;
+        }
+
+        Vector2 targetPosition = _lastRestedBenchSeat?.SitAnchor.position ?? _spawnPosition;
+        _rigidbody.position = targetPosition;
+        _rigidbody.velocity = Vector2.zero;
+        IsGrounded = true;
+
+        IsDead = false;
+
+        DefendHeld = false;
+        LookingUp = false;
+        LookingDown = false;
+
+        if (_animator != null)
+        {
+            _animator.SetBool(DefendHeldHash, false);
+            _animator.SetBool(LookingUpHash, false);
+            _animator.SetBool(LookingDownHash, false);
+            _animator.SetBool(IsSittingHash, false);
+            _animator.SetBool(IsDeadHash, false);
+            _animator.SetTrigger(RespawnTriggerHash);
+        }
+
+        Respawned?.Invoke();
     }
 
     /// <summary>
@@ -756,7 +984,7 @@ public class PlayerController : MonoBehaviour
     {
         EnsureCachedComponents();
 
-        bool isIdleAndGrounded = IsGrounded && !IsDead && !IsFullyCommitted && _horizontalInput == 0f;
+        bool isIdleAndGrounded = IsIdleAndGrounded();
 
         float lookDirection = 0f;
         if (wHeld)
@@ -776,6 +1004,148 @@ public class PlayerController : MonoBehaviour
         {
             _animator.SetBool(LookingUpHash, LookingUp);
             _animator.SetBool(LookingDownHash, LookingDown);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Bench sit/stand mechanic methods (Docs/Plans/008_bench-sit-mechanic.md).
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Shared "idle and grounded" gate (Decision 8) - the same four-condition expression
+    /// <see cref="UpdateLookState"/> already computed, extracted into one place so <see cref="TrySit"/>
+    /// doesn't duplicate it (a classic two-copies-silently-drift risk), plus an explicit
+    /// <c>&amp;&amp; !_isSitting</c> exclusion (Decision 1/2): without it, the same frame sitting starts,
+    /// <see cref="UpdateLookState"/>'s own read of this gate would independently evaluate true (every
+    /// other condition is still satisfied while seated) and, because Idle's transition list evaluates
+    /// LookingUp/LookingDown before IsSitting, Mecanim would take the LookUp/LookDown transition
+    /// instead of Sitting - a real, order-dependent bug, not a hypothetical one.
+    /// </summary>
+    private bool IsIdleAndGrounded()
+    {
+        return IsGrounded && !IsDead && !IsFullyCommitted && _horizontalInput == 0f && !_isSitting;
+    }
+
+    /// <summary>
+    /// Attempts to sit on a bench. Takes isNearBench as a parameter (rather than reading
+    /// <see cref="IsNearBench"/> internally) for the same EditMode-testability reason as
+    /// TryJump/TryAttack. The real call site is Update(), on the W GetKeyDown edge, called BEFORE
+    /// <see cref="UpdateLookState"/> in Update()'s existing order (Decision 1) - see
+    /// <see cref="IsIdleAndGrounded"/>'s doc comment for why that ordering matters.
+    ///
+    /// No-ops (returns false) if already sitting (no-stack guard, mirroring TryAttack's own
+    /// _isAttacking check), or not idle-and-grounded, or not near a bench. On success, sets
+    /// <see cref="IsSitting"/> and the Animator's IsSitting bool.
+    /// </summary>
+    public bool TrySit(bool isNearBench)
+    {
+        EnsureCachedComponents();
+
+        if (_isSitting || !IsIdleAndGrounded() || !isNearBench)
+        {
+            return false;
+        }
+
+        _isSitting = true;
+        if (_animator != null)
+        {
+            _animator.SetBool(IsSittingHash, true);
+        }
+
+        Rested?.Invoke();
+
+        // Snap-and-hide (Docs/Plans/009_bench-visual-fixes.md, Decision 3/4): latch which bench was
+        // actually sat on, then snap to its sit anchor and hide the standalone bench sprite. Fully
+        // skipped when NearBench is null (every pre-existing TrySit test never sets it) - no
+        // position write, no visibility call, TrySit's prior behavior is otherwise unchanged.
+        _seatedBench = NearBench;
+        if (NearBench != null)
+        {
+            // Latched separately from _seatedBench (Docs/Plans/011_death-and-respawn.md, Decision 2) -
+            // this one is NEVER cleared by StandUp, so it survives standing up for Respawn() to use.
+            _lastRestedBenchSeat = NearBench;
+        }
+
+        if (_seatedBench != null)
+        {
+            // Rigidbody2D.position, not transform.position directly (Decision 4) - this codebase
+            // already exclusively writes _rigidbody.* for every position/velocity mutation; a direct
+            // transform.position write on a dynamic Rigidbody2D can be overridden by the physics
+            // engine's own cached position on the next physics step.
+            _rigidbody.position = _seatedBench.SitAnchor.position;
+            _seatedBench.SetVisible(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Shared sitting-reset helper (Docs/Plans/009_bench-visual-fixes.md, Decision 5) - mirrors this
+    /// file's own existing <see cref="IsIdleAndGrounded"/> "one shared helper instead of duplicated
+    /// copies" precedent. Replaces the three previously-separate inline
+    /// <c>_isSitting = false;</c> / Animator-IsSitting-bool-clear pairs in
+    /// <see cref="StandUpIfWalking"/>, <see cref="Hurt"/>, and <see cref="Die"/> with one call each,
+    /// at the exact same point in each method's existing sequence. Also restores the seated bench's
+    /// visibility and clears <see cref="_seatedBench"/>, when one was latched.
+    /// </summary>
+    private void StandUp()
+    {
+        _isSitting = false;
+        if (_animator != null)
+        {
+            _animator.SetBool(IsSittingHash, false);
+        }
+
+        if (_seatedBench != null)
+        {
+            _seatedBench.SetVisible(true);
+            _seatedBench = null;
+        }
+    }
+
+    /// <summary>
+    /// Stands Quirrel up the instant he starts walking away while seated - the one stated exit
+    /// condition (Decision 2). Takes horizontalInput as a parameter for the same EditMode-testability
+    /// reason as the other Try*/Update* methods above. The real call site is Update(), immediately
+    /// after the A/D block, passing that same frame's _horizontalInput - the same-frame ordering means
+    /// every later-evaluated guard this same frame already sees IsSitting == false. No-op if not
+    /// currently sitting, or if horizontalInput is zero.
+    /// </summary>
+    public void StandUpIfWalking(float horizontalInput)
+    {
+        EnsureCachedComponents();
+
+        if (!_isSitting || horizontalInput == 0f)
+        {
+            return;
+        }
+
+        StandUp();
+    }
+
+    /// <summary>
+    /// One-shot spawn-time auto-sit check (Decision 10) - if the character spawns already near a
+    /// bench (the game starts with Quirrel already seated), sits him down automatically. Consumed
+    /// exactly once via <see cref="_hasCheckedInitialSpawnSit"/>; every call after the first no-ops
+    /// regardless of IsNearBench's value at that point. Deliberately checked from Update(), not
+    /// Awake()/Start(): Bench's OnTriggerEnter2D (which sets IsNearBench) fires during the physics
+    /// step, which runs after Start() but before the overwhelming majority of first-Update() calls in
+    /// practice - see the plan's own named, accepted frame-0 edge case for the rare exception.
+    /// </summary>
+    public void CheckInitialSpawnSit()
+    {
+        EnsureCachedComponents();
+
+        if (_hasCheckedInitialSpawnSit)
+        {
+            return;
+        }
+
+        _hasCheckedInitialSpawnSit = true;
+
+        if (IsNearBench && !IsDead)
+        {
+            TrySit(true);
         }
     }
 

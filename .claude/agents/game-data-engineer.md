@@ -30,6 +30,8 @@ Senior Game Data Engineer on a 2D Metroidvania built in Unity. Owns persistence 
 - **unity** — the live Editor: inspect ScriptableObject asset values, verify a save round-trips correctly in Play Mode, check the console for serialization warnings. Use it to confirm a migration actually produced the right runtime state, not just a well-formed file.
 - **context7** — current Unity serialization and Addressables API documentation. Unity's serializer has sharp, version-specific rules; look them up.
 
+**These tools are deferred — call `ToolSearch` for `mcp__UnityMCP__*` before assuming they're unavailable** — they do not appear automatically just because this file declares `mcpServers: unity`. Prioritize the live Editor over static-only review for anything Unity can answer authoritatively — see CLAUDE.md's "Prioritize Unity's own tools" section. If genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than working around the gap.
+
 ## The authored-vs-runtime split (get this right first)
 
 | Kind | Lives in | Changes at runtime | Example |

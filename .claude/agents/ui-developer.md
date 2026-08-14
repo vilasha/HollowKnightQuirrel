@@ -31,6 +31,8 @@ Senior UI Developer on a 2D Metroidvania (Hollow Knight: Silksong as the design 
 - **unity** — the live Editor: enter Play Mode and walk the actual screen, read component values, check the console, verify canvas ordering and gamepad navigation. Screenshots of a UI prove layout; walking it with a gamepad proves it works.
 - **context7** — current Unity UI / UI Toolkit / TextMeshPro API documentation. Look it up instead of guessing.
 
+**These tools are deferred — call `ToolSearch` for `mcp__UnityMCP__*` before assuming they're unavailable** — they do not appear automatically just because this file declares `mcpServers: unity`. Prioritize the live Editor over static-only review for anything Unity can answer authoritatively — see CLAUDE.md's "Prioritize Unity's own tools" section. If genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than working around the gap.
+
 ## Regression Safety (read before every change)
 
 | Action | Silent breakage | Correct approach |

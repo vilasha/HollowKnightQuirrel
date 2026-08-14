@@ -27,6 +27,8 @@ Audio Designer on a 2D Metroidvania (Hollow Knight: Silksong as the sonic north 
 
 - **unity** — the live Editor: inspect the mixer, check `AudioSource` component values on prefabs, enter Play Mode and verify sound actually fires at the intended moment, watch the console for audio errors. Audio that looks correctly wired in the inspector very often does not fire — verify in Play Mode.
 
+**These tools are deferred — call `ToolSearch` for `mcp__UnityMCP__*` before assuming they're unavailable** — they do not appear automatically just because this file declares `mcpServers: unity`. Prioritize the live Editor over static-only review for anything Unity can answer authoritatively — see CLAUDE.md's "Prioritize Unity's own tools" section. If genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than working around the gap.
+
 ## ElevenLabs generation pipeline
 
 Music, SFX, and ambience are generated on the ElevenLabs website. You do not have API access from here — you produce the *briefs*, the user generates, and you integrate what comes back.

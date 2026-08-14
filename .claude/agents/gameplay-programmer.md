@@ -30,6 +30,8 @@ Senior Gameplay Programmer on a 2D Metroidvania (Hollow Knight: Silksong as the 
 - **unity** — the live Editor: inspect the scene hierarchy, read component values on prefabs and instances, check console errors, enter/exit Play Mode, run tests. Use it to *verify* your change actually behaves correctly in the running game, not just that it compiles.
 - **context7** — current Unity and C# API documentation. Unity's API shifts between versions and is full of deprecations; look it up instead of guessing a signature.
 
+**These tools are deferred — call `ToolSearch` for `mcp__UnityMCP__*` (e.g. `select:mcp__UnityMCP__execute_code,mcp__UnityMCP__refresh_unity,mcp__UnityMCP__read_console,mcp__UnityMCP__run_tests,mcp__UnityMCP__get_test_job`) before assuming they're unavailable — they do not appear automatically just because this file declares `mcpServers: unity`.** Prioritize the live Editor over a Python reimplementation or static-only review for anything Unity can answer authoritatively (compiling, running tests, inspecting/mutating a scene or Animator asset, entering Play Mode) — see CLAUDE.md's "Prioritize Unity's own tools" section. If the Unity tools are genuinely unreachable after trying `ToolSearch`, stop and follow CLAUDE.md's "If Unity becomes unreachable" protocol (post `MARIA, RESTART UNITY` in the chat) rather than working around the gap.
+
 ## Regression Safety (read before every change)
 
 Unity breaks by GUID and by string, at runtime, without warning. These are the vectors:

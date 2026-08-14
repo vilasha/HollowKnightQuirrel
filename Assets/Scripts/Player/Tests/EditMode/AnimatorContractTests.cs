@@ -47,6 +47,8 @@ public class AnimatorContractTests
         ("IsDeadHash", "IsDead", AnimatorControllerParameterType.Bool),
         ("LookingUpHash", "LookingUp", AnimatorControllerParameterType.Bool),
         ("LookingDownHash", "LookingDown", AnimatorControllerParameterType.Bool),
+        ("IsSittingHash", "IsSitting", AnimatorControllerParameterType.Bool),
+        ("RespawnTriggerHash", "RespawnTrigger", AnimatorControllerParameterType.Trigger),
     };
 
     private static AnimatorController LoadController()
@@ -69,7 +71,7 @@ public class AnimatorContractTests
     }
 
     [Test]
-    public void Controller_HasExactly10Parameters_MatchingPlayerControllerContract()
+    public void Controller_ParameterCount_MatchesPlayerControllerContract()
     {
         AnimatorController controller = LoadController();
         AnimatorControllerParameter[] actualParameters = controller.parameters;
@@ -225,28 +227,30 @@ public class AnimatorContractTests
     // -------------------------------------------------------------------
 
     /// <summary>
-    /// Locks in plan 007 Task 3.1's exact transition topology: Idle must have exactly 5 outgoing
-    /// transitions, in list order Walk/JumpAnticipation/DefendRaise/LookUp/LookDown (order is
-    /// load-bearing - Mecanim evaluates a state's outgoing transitions in list order and takes the
-    /// first whose conditions are all satisfied), with the exact conditions the plan specifies. The
-    /// existing 3 transitions (Walk/JumpAnticipation/DefendRaise) must remain byte-identical in order,
-    /// condition, and destination to their pre-plan-007 state - the 2 new ones are appended last.
+    /// Locks in plan 007 Task 3.1's + plan 008 Task 3.1's exact transition topology: Idle must have
+    /// exactly 6 outgoing transitions, in list order Walk/JumpAnticipation/DefendRaise/LookUp/
+    /// LookDown/Sitting (order is load-bearing - Mecanim evaluates a state's outgoing transitions in
+    /// list order and takes the first whose conditions are all satisfied), with the exact conditions
+    /// the plan specifies. The existing 5 transitions (Walk/JumpAnticipation/DefendRaise/LookUp/
+    /// LookDown) must remain byte-identical in order, condition, and destination to their pre-plan-008
+    /// state (Docs/Plans/008_bench-sit-mechanic.md, Decision 1) - the new Sitting transition is
+    /// appended last.
     /// </summary>
     [Test]
-    public void IdleState_HasExactlyFiveOutgoingTransitions_InOrder_IncludingLookUpAndLookDown()
+    public void IdleState_HasExactlySixOutgoingTransitions_InOrder_IncludingLookUpDownAndSitting()
     {
         AnimatorController controller = LoadController();
 
         AnimatorState idleState = FindStateByName(controller, "Idle");
         Assert.IsNotNull(idleState,
-            $"Expected an 'Idle' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 007 Task 3.1 " +
-            "appends 2 new outgoing transitions to it.");
+            $"Expected an 'Idle' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 008 Task 3.1 " +
+            "appends a new outgoing transition to it.");
 
         AnimatorStateTransition[] transitions = idleState.transitions;
-        Assert.AreEqual(5, transitions.Length,
-            "Idle should have exactly 5 outgoing transitions (plan 007 Task 3.1: Walk/JumpAnticipation/" +
-            $"DefendRaise/LookUp/LookDown) - found {transitions.Length}. A transition was added or removed " +
-            "without updating this contract test.");
+        Assert.AreEqual(6, transitions.Length,
+            "Idle should have exactly 6 outgoing transitions (plan 008 Task 3.1: Walk/JumpAnticipation/" +
+            $"DefendRaise/LookUp/LookDown/Sitting) - found {transitions.Length}. A transition was added or " +
+            "removed without updating this contract test.");
 
         AssertTransition(transitions[0], "Walk", new (AnimatorConditionMode, string, float)[]
         {
@@ -272,6 +276,37 @@ public class AnimatorContractTests
         {
             (AnimatorConditionMode.If, "LookingDown", 0f),
         }, "Idle -> LookDown");
+
+        AssertTransition(transitions[5], "Sitting", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsSitting", 0f),
+        }, "Idle -> Sitting");
+    }
+
+    /// <summary>
+    /// Locks in plan 008 Task 3.1's Decision 9 finding: Sitting needs exactly one outgoing transition
+    /// (unlike LookUp/LookDown's 4) because Attack/Jump/Defend are code-blocked at the PlayerController
+    /// level while _isSitting is true, so no mirrored pass-through transitions are structurally needed.
+    /// </summary>
+    [Test]
+    public void SittingState_HasExactlyOneOutgoingTransition_ToWalk()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState sittingState = FindStateByName(controller, "Sitting");
+        Assert.IsNotNull(sittingState,
+            $"Expected a 'Sitting' state on '{ControllerAssetPath}''s base layer (layer 0) - plan 008 Task 3.1 " +
+            "adds this state.");
+
+        AnimatorStateTransition[] transitions = sittingState.transitions;
+        Assert.AreEqual(1, transitions.Length,
+            "Sitting should have exactly 1 outgoing transition (plan 008 Task 3.1/Decision 9: Walk) - " +
+            $"found {transitions.Length}. A transition was added or removed without updating this contract test.");
+
+        AssertTransition(transitions[0], "Walk", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "IsWalking", 0f),
+        }, "Sitting -> Walk");
     }
 
     /// <summary>
@@ -356,5 +391,37 @@ public class AnimatorContractTests
         {
             (AnimatorConditionMode.IfNot, "LookingDown", 0f),
         }, "LookDown -> Idle");
+    }
+
+    // -------------------------------------------------------------------
+    // Task 2.1/4.2 (Docs/Plans/011_death-and-respawn.md): contract test locking in the new
+    // RespawnTrigger parameter's Die -> Idle transition. Same failure-mode reasoning as the tests
+    // above: an Animator transition edit compiles fine and fails silently at runtime if wrong.
+    // -------------------------------------------------------------------
+
+    /// <summary>
+    /// Locks in plan 011 Task 2.1's exact transition topology: Die must have exactly one outgoing
+    /// transition, to Idle, condition RespawnTrigger (Decision 10 - scoped to the Die state only, not
+    /// AnyState, so this new transition cannot silently inflate any other state's outgoing-transition
+    /// count that this file already asserts exactly).
+    /// </summary>
+    [Test]
+    public void DieState_HasExactlyOneOutgoingTransition_ToIdle()
+    {
+        AnimatorController controller = LoadController();
+
+        AnimatorState dieState = FindStateByName(controller, "Die");
+        Assert.IsNotNull(dieState,
+            $"Expected a 'Die' state on '{ControllerAssetPath}''s base layer (layer 0).");
+
+        AnimatorStateTransition[] transitions = dieState.transitions;
+        Assert.AreEqual(1, transitions.Length,
+            "Die should have exactly 1 outgoing transition (Docs/Plans/011_death-and-respawn.md Task 2.1: Idle) - " +
+            $"found {transitions.Length}. A transition was added or removed without updating this contract test.");
+
+        AssertTransition(transitions[0], "Idle", new (AnimatorConditionMode, string, float)[]
+        {
+            (AnimatorConditionMode.If, "RespawnTrigger", 0f),
+        }, "Die -> Idle");
     }
 }
