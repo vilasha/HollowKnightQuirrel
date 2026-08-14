@@ -207,10 +207,11 @@ public class PlayerController : MonoBehaviour
     /// <summary>
     /// Seconds between <see cref="Die"/> firing and <see cref="Respawn"/> automatically running
     /// (Decision 5 - fixed delay, not player-input-gated). Serialized so design/QA can retune without
-    /// recompiling. Default 1.5s comfortably exceeds Quirrel_Die.anim's 0.5s length.
+    /// recompiling. Default 3.0s (doubled from the original 1.5s per user feedback) comfortably
+    /// exceeds Quirrel_Die.anim's 0.5s length.
     /// </summary>
     [SerializeField]
-    private float _respawnDelay = 1.5f;
+    private float _respawnDelay = 3.0f;
 
     /// <summary>True from the moment <see cref="Die"/> starts the respawn timer until <see cref="Respawn"/> resolves it. Same shape as <see cref="_isHurtStunned"/>'s timer flag.</summary>
     private bool _isAwaitingRespawn;

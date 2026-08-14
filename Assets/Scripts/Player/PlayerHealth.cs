@@ -46,7 +46,7 @@ public class PlayerHealth : MonoBehaviour
     /// window. Serialized so design/QA can retune without recompiling.
     /// </summary>
     [SerializeField]
-    private float _damageInvulnerabilityDuration = 1.0f;
+    private float _damageInvulnerabilityDuration = 0.5f;
 
     private PlayerController _playerController;
 

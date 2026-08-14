@@ -44,6 +44,19 @@ public class PlayerHealthTests
     }
 
     /// <summary>
+    /// Reads the live _damageInvulnerabilityDuration tunable via reflection, mirroring
+    /// PlayerControllerTests.cs's own GetRespawnDelay convention - tests compute their wait times
+    /// relative to this instead of a hardcoded absolute, so retuning the serialized default (as
+    /// happened 2026-08-14, 1.0s -> 0.5s) doesn't silently desync a hardcoded test expectation again.
+    /// </summary>
+    private static float GetInvulnerabilityDuration(PlayerHealth health)
+    {
+        FieldInfo field = typeof(PlayerHealth).GetField(
+            "_damageInvulnerabilityDuration", BindingFlags.NonPublic | BindingFlags.Instance);
+        return (float)field.GetValue(health);
+    }
+
+    /// <summary>
     /// Test-only helper that invokes PlayerHealth's private Awake() directly via reflection - this runs
     /// the actual production Awake() code (not a hand-duplicated reimplementation of it), purely to work
     /// around Awake() not firing automatically for AddComponent'd instances in this Editor test context
@@ -166,13 +179,14 @@ public class PlayerHealthTests
     {
         CreatePlayer();
         InitializeHealth();
-        _playerHealth.ApplyDamage(4); // starts the default 1.0s invulnerability window
+        float duration = GetInvulnerabilityDuration(_playerHealth);
+        _playerHealth.ApplyDamage(4); // starts the default invulnerability window
         Assert.IsTrue(_playerHealth.IsInvulnerable);
 
-        _playerHealth.AdvanceInvulnerabilityTimer(0.5f);
-        Assert.IsTrue(_playerHealth.IsInvulnerable, "The window should still be active at 0.5s into the default 1.0s duration.");
+        _playerHealth.AdvanceInvulnerabilityTimer(duration - 0.1f);
+        Assert.IsTrue(_playerHealth.IsInvulnerable, "The window should still be active just before the duration elapses.");
 
-        _playerHealth.AdvanceInvulnerabilityTimer(0.51f); // elapses the remaining ~0.5s
+        _playerHealth.AdvanceInvulnerabilityTimer(0.11f); // elapses the remaining time plus margin
         Assert.IsFalse(_playerHealth.IsInvulnerable, "The window should have cleared once fully elapsed.");
 
         bool secondHitResult = _playerHealth.ApplyDamage(4);

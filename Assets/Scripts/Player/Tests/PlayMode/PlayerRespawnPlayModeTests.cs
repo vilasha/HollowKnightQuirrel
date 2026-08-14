@@ -36,10 +36,12 @@ using UnityEngine.TestTools;
 /// without needing a multi-hit sequence or relying on the (separate, non-fatal-path-only) invulnerability
 /// window.
 ///
-/// RESPAWN DELAY: PlayerController's default serialized _respawnDelay is 1.5f (confirmed directly against
-/// PlayerController.cs's field initializer and doc comment). Hardcoded here as a local constant rather than
-/// reflected, matching PlayerHealthPlayModeTests's own established precedent for a per-instance serialized
-/// tunable (that file's InvulnerabilityWindowSeconds comment explains the same reasoning).
+/// RESPAWN DELAY: PlayerController's default serialized _respawnDelay is 3.0f as of 2026-08-14
+/// (doubled from the original 1.5f per user feedback - keep in sync if retuned again; confirmed
+/// directly against PlayerController.cs's field initializer and doc comment). Hardcoded here as a
+/// local constant rather than reflected, matching PlayerHealthPlayModeTests's own established
+/// precedent for a per-instance serialized tunable (that file's InvulnerabilityWindowSeconds comment
+/// explains the same reasoning).
 /// </summary>
 public class PlayerRespawnPlayModeTests
 {
@@ -49,7 +51,7 @@ public class PlayerRespawnPlayModeTests
     private const string QuirrelControllerAssetPath = "Assets/Animations/Quirrel.controller";
 
     // See class doc comment's RESPAWN DELAY section - matches PlayerController's own default _respawnDelay.
-    private const float RespawnDelaySeconds = 1.5f;
+    private const float RespawnDelaySeconds = 3.0f;
 
     // See class doc comment's FATAL-HIT AMOUNT section - matches PlayerHealth's own default starting health exactly.
     private const int FatalHitQuarterMasks = 16;

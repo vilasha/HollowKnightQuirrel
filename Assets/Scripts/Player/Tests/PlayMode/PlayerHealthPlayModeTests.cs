@@ -47,12 +47,13 @@ public class PlayerHealthPlayModeTests
     // minor physics settling jitter.
     private const float InsideHazardX = 5f;
 
-    // Mirrors PlayerHealth's own default serialized _damageInvulnerabilityDuration (1.0f) - not read
-    // via reflection/a shared constant (that field is a per-instance serialized tunable, not a `const`
-    // like PlayerHealth.QuartersPerMask/MaxMasksCap), so this is hardcoded here the same way
-    // PlayerControllerPlayModeTests hardcodes PlayerController's own 0.3s hit-stun duration as a local
-    // "0.35f" (duration + margin) constant rather than reflecting it.
-    private const float InvulnerabilityWindowSeconds = 1.0f;
+    // Mirrors PlayerHealth's own default serialized _damageInvulnerabilityDuration (0.5f as of
+    // 2026-08-14, reduced from the original 1.0f per user feedback - keep in sync if retuned again)
+    // - not read via reflection/a shared constant (that field is a per-instance serialized tunable,
+    // not a `const` like PlayerHealth.QuartersPerMask/MaxMasksCap), so this is hardcoded here the
+    // same way PlayerControllerPlayModeTests hardcodes PlayerController's own 0.3s hit-stun duration
+    // as a local "0.35f" (duration + margin) constant rather than reflecting it.
+    private const float InvulnerabilityWindowSeconds = 0.5f;
 
     private GameObject _groundObject;
     private GameObject _playerObject;
